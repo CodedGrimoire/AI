@@ -108,7 +108,7 @@ def plot_weight_sweeps(results):
 
 def main():
     center = (23.746, 90.376)  # Dhaka example
-    G = generate_graph(center, min_nodes=50, max_nodes=60)
+    G = generate_graph(center, min_nodes=120, max_nodes=180)
 
     assign_synthetic_features(G)
     apply_cost(G, DEFAULT_WEIGHTS)
@@ -118,7 +118,7 @@ def main():
     print_table(results)
     plot_weight_sweeps(results)
 
-    # Route overlays
+    # Route overlays and per-route PNGs (baseline variants)
     base_paths = {
         "Dijkstra": next(p for p in results if p[0] == "Dijkstra")[7],
         "Greedy": next(p for p in results if p[0] == "Greedy")[7],
@@ -126,29 +126,50 @@ def main():
         "Weighted A*": next(p for p in results if p[0] == "WA*" and p[2] == 1.5)[7],
     }
     plot_all_routes(G_conn, base_paths, start, goal)
-    for name, path in base_paths.items():
-        plot_single_route(G_conn, path, name, color=None)
+    plot_single_route(G_conn, base_paths["Dijkstra"], "Dijkstra", color="blue", filename="dijkstra.png")
+    plot_single_route(G_conn, base_paths["Greedy"], "Greedy", color="orange", filename="greedy.png")
+    plot_single_route(G_conn, base_paths["A*"], "A*", color="green", filename="astar.png")
+    plot_single_route(G_conn, base_paths["Weighted A*"], "Weighted A*", color="red", filename="weighted_astar.png")
 
-    # Bar charts: expanded, time, cost vs Dijkstra baseline
+    # Charts: expanded, time, cost vs Dijkstra baseline (using base variants)
     df = pd.DataFrame(results, columns=["alg", "k", "w", "cost", "expanded", "time", "plen", "path"])
     base_cost = df[df.alg == "Dijkstra"].iloc[0]["cost"]
 
+    # Select base variants for bars: Dijkstra, Greedy, A* (k=1), WA* (w=1.5)
+    base_rows = df[
+        ((df.alg == "Dijkstra"))
+        | ((df.alg == "Greedy"))
+        | ((df.alg == "A*") & (df.k == 1.0))
+        | ((df.alg == "WA*") & (df.w == 1.5))
+    ].copy()
+
     fig, axes = plt.subplots(1, 3, figsize=(12, 3))
-    # take best (min) per algorithm over parameter sweeps
-    bars = df.groupby("alg").agg({"expanded": "min", "time": "min", "cost": "min"}).reset_index()
-    axes[0].bar(bars["alg"], bars["expanded"], color="skyblue")
+    axes[0].bar(base_rows["alg"], base_rows["expanded"], color="skyblue")
     axes[0].set_title("Nodes Expanded")
-    axes[1].bar(bars["alg"], bars["time"], color="salmon")
+    axes[1].bar(base_rows["alg"], base_rows["time"], color="salmon")
     axes[1].set_title("Time (s)")
-    axes[2].bar(bars["alg"], bars["cost"], color="seagreen")
+    axes[2].bar(base_rows["alg"], base_rows["cost"], color="seagreen")
     axes[2].axhline(base_cost, color="black", linestyle="--", label="Dijkstra cost")
-    axes[2].set_title("Path Cost")
+    axes[2].set_title("Path Cost vs Dijkstra")
     axes[2].legend()
     for ax in axes:
         ax.tick_params(axis='x', rotation=45)
     plt.tight_layout()
     plt.savefig("alg_comparison_bars.png", dpi=150)
     plt.close(fig)
+
+    # Accuracy plot: cost ratio vs Dijkstra
+    base_costs = base_rows.set_index("alg")["cost"]
+    ratios = base_costs / base_cost
+    plt.figure(figsize=(4,3))
+    ratios.plot(kind="bar", color="purple")
+    plt.axhline(1.0, color="black", linestyle="--", label="Dijkstra")
+    plt.ylabel("Cost / Dijkstra")
+    plt.title("Accuracy vs Dijkstra")
+    plt.legend()
+    plt.tight_layout()
+    plt.savefig("accuracy_vs_dijkstra.png", dpi=150)
+    plt.close()
 
 
 if __name__ == "__main__":

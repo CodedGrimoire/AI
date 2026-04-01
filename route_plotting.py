@@ -15,7 +15,7 @@ COLORS = {
 }
 
 
-def plot_single_route(G: nx.MultiDiGraph, path, name: str, color: str | None):
+def plot_single_route(G: nx.MultiDiGraph, path, name: str, color: str | None, filename: str | None = None):
     if not path:
         print(f"[warn] {name}: empty path, skipping plot")
         return
@@ -31,7 +31,8 @@ def plot_single_route(G: nx.MultiDiGraph, path, name: str, color: str | None):
         close=False,
     )
     ax.set_title(name)
-    plt.savefig(f"{name.lower().replace(' ', '_')}.png", dpi=150, bbox_inches="tight")
+    fname = filename or f"{name.lower().replace(' ', '_').replace('*','star')}.png"
+    plt.savefig(fname, dpi=150, bbox_inches="tight")
     plt.close(fig)
 
 

@@ -12,6 +12,10 @@ from __future__ import annotations
 
 import networkx as nx
 import pandas as pd
+import matplotlib
+
+# Force non-interactive backend to prevent GUI hangs
+matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 
 from route_planning.graph_builder import generate_graph
@@ -108,7 +112,8 @@ def plot_weight_sweeps(results):
 
 def main():
     center = (23.746, 90.376)  # Dhaka example
-    G = generate_graph(center, min_nodes=120, max_nodes=180)
+    # Smaller graph for quicker runs while keeping variability
+    G = generate_graph(center, min_nodes=100, max_nodes=140)
 
     assign_synthetic_features(G)
     apply_cost(G, DEFAULT_WEIGHTS)

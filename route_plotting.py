@@ -15,10 +15,11 @@ COLORS = {
 }
 
 
-def plot_single_route(G: nx.MultiDiGraph, path, name: str, color: str):
+def plot_single_route(G: nx.MultiDiGraph, path, name: str, color: str | None):
     if not path:
         print(f"[warn] {name}: empty path, skipping plot")
         return
+    color = color or COLORS.get(name, "black")
     fig, ax = ox.plot_graph_route(
         G,
         path,

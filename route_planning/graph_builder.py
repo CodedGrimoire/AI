@@ -15,13 +15,35 @@ os.environ.setdefault("PROJ_NETWORK", "OFF")
 import osmnx as ox
 import networkx as nx
 import time
+import math
 
 
 def _synthetic_grid(target_nodes: int = 400, spacing: float = 30.0) -> nx.MultiDiGraph:
-    """Offline fallback: build a simple grid graph with x/y coords and lengths."""
-    side = max(2, int(target_nodes ** 0.5))
-    rows = cols = side
+    """Offline fallback: build a grid graph near the requested size.
+
+    Tries to hit `target_nodes` exactly by constructing a nearly square grid and
+    trimming the last row if necessary.
+    """
+
+    # Choose near-square dimensions
+    rows = max(2, math.isqrt(target_nodes))
+    cols = max(2, math.ceil(target_nodes / rows))
+
+    # Build base grid
     base = nx.grid_2d_graph(rows, cols, create_using=nx.Graph)
+
+    # Trim excess nodes from the last row to match target_nodes (keeps grid shape)
+    extra = len(base) - target_nodes
+    if extra > 0:
+        # nodes are (r, c); trim from the highest row, right to left
+        max_r = rows - 1
+        candidates = sorted([(r, c) for r, c in base.nodes if r == max_r], reverse=True)
+        for node in candidates:
+            if extra <= 0:
+                break
+            base.remove_node(node)
+            extra -= 1
+
     G = nx.MultiDiGraph()
     G.graph["crs"] = "epsg:3857"
     G.graph["graph_label"] = "Synthetic grid"

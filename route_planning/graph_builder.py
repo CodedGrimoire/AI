@@ -24,6 +24,7 @@ def _synthetic_grid(target_nodes: int = 400, spacing: float = 30.0) -> nx.MultiD
     base = nx.grid_2d_graph(rows, cols, create_using=nx.Graph)
     G = nx.MultiDiGraph()
     G.graph["crs"] = "epsg:3857"
+    G.graph["graph_label"] = "Synthetic grid"
     for (r, c) in base.nodes:
         G.add_node((r, c), x=float(c * spacing), y=float(r * spacing))
     for u, v in base.edges:
@@ -61,6 +62,7 @@ def generate_graph(center: tuple[float, float], min_nodes: int = 50, max_nodes: 
             G = G.subgraph(nodes).copy()
 
         G = ox.project_graph(G)
+        G.graph["graph_label"] = "OSM graph"
         print(f"[info] OSM graph loaded | Nodes: {len(G)} | Edges: {len(G.edges())}")
         return G
     except Exception as e:

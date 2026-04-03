@@ -16,66 +16,80 @@ COLORS = {
 
 
 def plot_single_route(G: nx.MultiDiGraph, path, name: str, color: str | None, filename: str | None = None):
+    """Render a single algorithm route with visible nodes, start/goal markers, and a heading."""
     if not path:
         print(f"[warn] {name}: empty path, skipping plot")
         return
+
     color = color or COLORS.get(name, "black")
-    fig, ax = ox.plot_graph_route(
-        G,
-        path,
-        route_color=color,
-        route_linewidth=3,
-        node_size=0,
-        bgcolor="white",
-        show=False,
-        close=False,
-    )
-    ax.set_title(name)
+    pos = {n: (G.nodes[n]["x"], G.nodes[n]["y"]) for n in G.nodes}
+
+    fig, ax = plt.subplots(figsize=(5, 5))
+
+    # Edges (light gray)
+    for u, v in G.edges():
+        x0, y0 = pos[u]
+        x1, y1 = pos[v]
+        ax.plot([x0, x1], [y0, y1], color="#dddddd", linewidth=1, zorder=1)
+
+    # Nodes
+    xs, ys = zip(*pos.values())
+    ax.scatter(xs, ys, c="#888", s=12, zorder=2, label="Nodes")
+
+    # Path
+    path_x = [pos[n][0] for n in path]
+    path_y = [pos[n][1] for n in path]
+    ax.plot(path_x, path_y, color=color, linewidth=3, zorder=3, label=name)
+
+    # Start/Goal markers
+    start, goal = path[0], path[-1]
+    ax.scatter(*pos[start], c="green", s=50, zorder=4, label="Start")
+    ax.scatter(*pos[goal], c="red", s=50, zorder=4, label="Goal")
+
+    graph_label = G.graph.get("graph_label", "OSM graph")
+    ax.set_title(f"{name} on {graph_label} | nodes: {len(G)} | edges: {len(G.edges())}")
+    ax.set_aspect("equal")
+    ax.axis("off")
+    ax.legend(loc="best", frameon=False)
+
     fname = filename or f"{name.lower().replace(' ', '_').replace('*','star')}.png"
+    plt.tight_layout()
     plt.savefig(fname, dpi=150, bbox_inches="tight")
     plt.close(fig)
 
 
 def plot_all_routes(G: nx.MultiDiGraph, paths_dict: dict, start, goal):
-    fig, ax = ox.plot_graph(
-        G,
-        node_size=0,
-        edge_color="#888",
-        bgcolor="white",
-        show=False,
-        close=False,
-    )
+    """Overlay all algorithm paths on one plot with start/goal markers."""
+    pos = {n: (G.nodes[n]["x"], G.nodes[n]["y"]) for n in G.nodes}
 
-    # Plot each path
+    fig, ax = plt.subplots(figsize=(6, 6))
+
+    # Base edges
+    for u, v in G.edges():
+        x0, y0 = pos[u]
+        x1, y1 = pos[v]
+        ax.plot([x0, x1], [y0, y1], color="#dddddd", linewidth=1, zorder=1)
+
+    # Overlay each route
     for name, path in paths_dict.items():
         if not path:
             print(f"[warn] {name}: empty path, skipping overlay")
             continue
         color = COLORS.get(name, "black")
-        ox.plot_graph_route(
-            G,
-            path,
-            route_color=color,
-            route_linewidth=3,
-            node_size=0,
-            bgcolor="white",
-            ax=ax,
-            show=False,
-            close=False,
-        )
+        path_x = [pos[n][0] for n in path]
+        path_y = [pos[n][1] for n in path]
+        ax.plot(path_x, path_y, color=color, linewidth=3, zorder=3, label=name)
 
     # Mark start/goal
-    ax.scatter(G.nodes[start]["x"], G.nodes[start]["y"], c="green", s=40, label="Start", zorder=5)
-    ax.scatter(G.nodes[goal]["x"], G.nodes[goal]["y"], c="red", s=40, label="Goal", zorder=5)
+    ax.scatter(*pos[start], c="green", s=50, zorder=4, label="Start")
+    ax.scatter(*pos[goal], c="red", s=50, zorder=4, label="Goal")
 
-    # Legend
-    handles = []
-    for name, color in COLORS.items():
-        handles.append(plt.Line2D([0], [0], color=color, lw=3, label=name))
-    handles.append(plt.Line2D([0], [0], marker="o", color="w", markerfacecolor="green", markersize=8, label="Start"))
-    handles.append(plt.Line2D([0], [0], marker="o", color="w", markerfacecolor="red", markersize=8, label="Goal"))
-    ax.legend(handles=handles, loc="best")
+    ax.set_title(f"Routes overlay | nodes: {len(G)} | edges: {len(G.edges())}")
+    ax.set_aspect("equal")
+    ax.axis("off")
+    ax.legend(loc="best", frameon=False)
 
+    plt.tight_layout()
     plt.savefig("comparison_routes.png", dpi=200, bbox_inches="tight")
     plt.close(fig)
 

@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from pathlib import Path
+
 import osmnx as ox
 import matplotlib.pyplot as plt
 import networkx as nx
@@ -13,6 +15,9 @@ COLORS = {
     "A*": "green",
     "Weighted A*": "red",
 }
+
+OUTPUT_DIR = Path("images")
+OUTPUT_DIR.mkdir(exist_ok=True)
 
 
 def plot_single_route(G: nx.MultiDiGraph, path, name: str, color: str | None, filename: str | None = None):
@@ -52,7 +57,7 @@ def plot_single_route(G: nx.MultiDiGraph, path, name: str, color: str | None, fi
     ax.axis("off")
     ax.legend(loc="best", frameon=False)
 
-    fname = filename or f"{name.lower().replace(' ', '_').replace('*','star')}.png"
+    fname = Path(filename) if filename else OUTPUT_DIR / f"{name.lower().replace(' ', '_').replace('*','star')}.png"
     plt.tight_layout()
     plt.savefig(fname, dpi=150, bbox_inches="tight")
     plt.close(fig)
@@ -90,7 +95,7 @@ def plot_all_routes(G: nx.MultiDiGraph, paths_dict: dict, start, goal):
     ax.legend(loc="best", frameon=False)
 
     plt.tight_layout()
-    plt.savefig("comparison_routes.png", dpi=200, bbox_inches="tight")
+    plt.savefig(OUTPUT_DIR / "comparison_routes.png", dpi=200, bbox_inches="tight")
     plt.close(fig)
 
 

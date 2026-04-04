@@ -23,6 +23,7 @@ You can import these functions or run this file directly for a small demo.
 
 from __future__ import annotations
 
+
 import heapq
 import time
 from dataclasses import dataclass, field

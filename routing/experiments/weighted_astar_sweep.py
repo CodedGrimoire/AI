@@ -8,8 +8,8 @@ path cost.
 
 from __future__ import annotations
 
-import os
 from dataclasses import dataclass
+from pathlib import Path
 from typing import List
 
 import matplotlib
@@ -19,10 +19,10 @@ matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 import networkx as nx
 
-from route_planning.graph_builder import generate_graph
-from route_planning.features_costs import assign_synthetic_features, apply_cost
-from route_planning.heuristics import euclidean_heuristic
-from search_algorithms import (
+from routing.data.graph_builder import generate_graph
+from routing.data.features_costs import assign_synthetic_features, apply_cost
+from routing.heuristics.spatial import euclidean_heuristic
+from routing.algorithms.search import (
     dijkstra_search,
     weighted_a_star_search,
     compute_path_cost,
@@ -37,6 +37,9 @@ DEFAULT_WEIGHTS = {
     "w_bump": 12.0,
     "w_safety": 15.0,
 }
+
+OUTPUT_DIR = Path("images")
+OUTPUT_DIR.mkdir(exist_ok=True)
 
 
 @dataclass
@@ -108,7 +111,7 @@ def run_sweep(weights: List[float]) -> None:
     axes[2].set_title("WA* runtime vs w")
 
     plt.tight_layout()
-    plt.savefig("wa_sweep_metrics.png", dpi=180)
+    plt.savefig(OUTPUT_DIR / "wa_sweep_metrics.png", dpi=180)
     plt.close(fig)
 
     # Accuracy bar chart
@@ -120,7 +123,7 @@ def run_sweep(weights: List[float]) -> None:
     plt.title("WA* accuracy vs optimal cost")
     plt.legend()
     plt.tight_layout()
-    plt.savefig("wa_sweep_accuracy.png", dpi=180)
+    plt.savefig(OUTPUT_DIR / "wa_sweep_accuracy.png", dpi=180)
     plt.close()
 
     # Text summary for quick CLI view

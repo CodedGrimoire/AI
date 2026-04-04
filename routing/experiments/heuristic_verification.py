@@ -23,11 +23,11 @@ from typing import Dict, Hashable, List, Tuple
 
 import networkx as nx
 
-from route_planning.graph_builder import generate_graph
-from route_planning.features_costs import assign_synthetic_features, apply_cost
-from route_planning.heuristics import euclidean_heuristic
-from search_algorithms import dijkstra_search
-from run_experiments import DEFAULT_WEIGHTS, choose_start_goal
+from routing.data.graph_builder import generate_graph
+from routing.data.features_costs import assign_synthetic_features, apply_cost
+from routing.heuristics.spatial import euclidean_heuristic
+from routing.algorithms.search import dijkstra_search
+from routing.experiments.run import DEFAULT_WEIGHTS, choose_start_goal
 
 
 def edge_min_cost(G: nx.MultiDiGraph, u: Hashable, v: Hashable) -> float:

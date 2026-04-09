@@ -12,8 +12,10 @@ Algorithm names strictly follow lecture notes.
 
 from __future__ import annotations
 
+import argparse
+import random
 from pathlib import Path
-from typing import Callable, Dict, Hashable, List, Sequence
+from typing import Callable, Dict, Hashable, List, Sequence, Optional, Tuple
 
 import matplotlib
 
@@ -21,6 +23,7 @@ matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 import networkx as nx
 import pandas as pd
+import osmnx as ox
 
 from routing.data.graph_builder import generate_graph
 from routing.data.features_costs import assign_synthetic_features, apply_cost
@@ -62,15 +65,48 @@ INFORMED_ORDER = [
 ]
 
 
-def choose_start_goal(G: nx.MultiDiGraph):
-    if not nx.is_weakly_connected(G):
-        largest_cc = max(nx.weakly_connected_components(G), key=len)
-        G = G.subgraph(largest_cc).copy()
+def _largest_component(G: nx.MultiDiGraph) -> nx.MultiDiGraph:
+    if G.is_directed():
+        comp = max(nx.strongly_connected_components(G), key=len)
+    else:
+        comp = max(nx.connected_components(G), key=len)
+    return G.subgraph(comp).copy()
 
+
+def choose_start_goal(
+    G: nx.MultiDiGraph,
+    *,
+    start: Optional[Hashable] = None,
+    goal: Optional[Hashable] = None,
+    random_pair: bool = False,
+    far_apart: bool = True,
+    rng: Optional[random.Random] = None,
+) -> Tuple[Hashable, Hashable, nx.MultiDiGraph]:
+    """Select start/goal nodes with options for manual, random, or far-apart sampling."""
+
+    G = _largest_component(G)
     nodes = list(G.nodes)
+    rng = rng or random.Random()
+
+    if start is not None and goal is not None:
+        if start not in G or goal not in G:
+            raise ValueError("Provided start/goal not in graph")
+        return start, goal, G
+
+    if random_pair:
+        start = rng.choice(nodes)
+        goal = rng.choice(nodes)
+        while goal == start:
+            goal = rng.choice(nodes)
+        return start, goal, G
+
+    # Default: farthest pair heuristic
     start = nodes[0]
-    goal = max(nodes, key=lambda n: euclidean_heuristic(G, start, n, 1.0))
-    start = max(nodes, key=lambda n: euclidean_heuristic(G, n, goal, 1.0))
+    if far_apart:
+        goal = max(nodes, key=lambda n: euclidean_heuristic(G, start, n, 1.0))
+        start = max(nodes, key=lambda n: euclidean_heuristic(G, n, goal, 1.0))
+    else:
+        goal = nodes[-1]
     return start, goal, G
 
 
@@ -78,30 +114,78 @@ def slugify(name: str) -> str:
     return name.lower().replace("*", "star").replace(" ", "_").replace("/", "_").replace("(", "").replace(")", "")
 
 
-def run_algorithms(G: nx.MultiDiGraph, start, goal) -> List[SearchResult]:
+def run_algorithms(
+    G: nx.MultiDiGraph,
+    start,
+    goal,
+    *,
+    skip_uninformed: bool = False,
+    timeout: Optional[int] = None,
+) -> List[SearchResult]:
     h_fn = exponential_feature_heuristic(G, goal)
 
-    runs: List[tuple[str, Callable[[], SearchResult]]] = [
-        ("Breadth-first search (BFS)", lambda: breadth_first_search(G, start, goal)),
-        ("Uniform cost search", lambda: uniform_cost_search(G, start, goal)),
-        ("Depth-first search (DFS)", lambda: depth_first_search(G, start, goal)),
-        ("Depth Limited Search", lambda: depth_limited_search(G, start, goal, limit=20)),
-        ("Iterative Deepening Search", lambda: iterative_deepening_search(G, start, goal, max_depth=40)),
-        ("Bidirectional Search", lambda: bidirectional_search(G, start, goal)),
-        ("Greedy best-first search", lambda: greedy_best_first_search(G, start, goal, h_fn)),
-        ("A* search", lambda: a_star_search(G, start, goal, h_fn)),
-    ]
+    runs: List[tuple[str, Callable[[], SearchResult]]] = []
+
+    if not skip_uninformed:
+        runs.extend(
+            [
+                ("Breadth-first search (BFS)", lambda: breadth_first_search(G, start, goal)),
+                ("Uniform cost search", lambda: uniform_cost_search(G, start, goal)),
+                ("Depth-first search (DFS)", lambda: depth_first_search(G, start, goal)),
+                ("Depth Limited Search", lambda: depth_limited_search(G, start, goal, limit=20)),
+                ("Iterative Deepening Search", lambda: iterative_deepening_search(G, start, goal, max_depth=40)),
+                ("Bidirectional Search", lambda: bidirectional_search(G, start, goal)),
+            ]
+        )
+
+    runs.extend(
+        [
+            ("Greedy best-first search", lambda: greedy_best_first_search(G, start, goal, h_fn)),
+            ("A* search", lambda: a_star_search(G, start, goal, h_fn)),
+        ]
+    )
 
     for w in WEIGHTS:
         runs.append(("Weighted A*", lambda w=w: weighted_a_star_search(G, start, goal, h_fn, w=w)))
 
     results: List[SearchResult] = []
-    for expected_name, fn in runs:
-        try:
-            res = fn()
-        except Exception as e:  # keep pipeline alive
-            res = SearchResult(
-                algorithm_name=expected_name,
+    def _run_with_timeout(label: str, func: Callable[[], SearchResult]) -> SearchResult:
+        if timeout is None or timeout <= 0:
+            return func()
+        import multiprocessing as mp
+
+        def worker(q):
+            try:
+                q.put(func())
+            except Exception as exc:  # noqa
+                q.put(exc)
+
+        q: mp.Queue = mp.Queue()
+        p = mp.Process(target=worker, args=(q,))
+        p.start()
+        p.join(timeout)
+        if p.is_alive():
+            p.terminate()
+            p.join()
+            return SearchResult(
+                algorithm_name=label,
+                path=[],
+                path_found=False,
+                total_path_cost=float("inf"),
+                nodes_expanded=0,
+                execution_time=timeout,
+                max_frontier_size=0,
+                path_length=0,
+                visited_count=0,
+                start_node=start,
+                goal_node=goal,
+                expanded_nodes=[],
+                cutoff_occurred=True,
+            )
+        res = q.get()
+        if isinstance(res, Exception):
+            return SearchResult(
+                algorithm_name=label,
                 path=[],
                 path_found=False,
                 total_path_cost=float("inf"),
@@ -114,9 +198,11 @@ def run_algorithms(G: nx.MultiDiGraph, start, goal) -> List[SearchResult]:
                 goal_node=goal,
                 expanded_nodes=[],
             )
-        # Ensure name kept even on success (Weighted A* already correct)
-        res.algorithm_name = expected_name if expected_name != "Weighted A*" or res.algorithm_name == "Weighted A*" else res.algorithm_name
-        results.append(res)
+        res.algorithm_name = label if label != "Weighted A*" or res.algorithm_name == "Weighted A*" else res.algorithm_name
+        return res
+
+    for expected_name, fn in runs:
+        results.append(_run_with_timeout(expected_name, fn))
     return results
 
 
@@ -348,13 +434,63 @@ def depth_diagnostics(G: nx.MultiDiGraph, start, goal):
 
 
 def main():
-    center = (23.746, 90.376)  # Dhaka example
-    G = generate_graph(center, min_nodes=100, max_nodes=140)
+    parser = argparse.ArgumentParser(description="Run routing experiments on Dhaka road network")
+    parser.add_argument("--skip-uninformed", action="store_true", help="Skip uninformed algorithms on large graphs")
+    parser.add_argument("--timeout", type=int, default=None, help="Per-algorithm timeout in seconds")
+    parser.add_argument("--start", type=str, default=None, help="Manual start node id")
+    parser.add_argument("--goal", type=str, default=None, help="Manual goal node id")
+    parser.add_argument("--random-start-goal", action="store_true", help="Pick random start/goal")
+    parser.add_argument("--seed", type=int, default=42, help="Random seed for sampling")
+    parser.add_argument("--far-apart", action="store_true", default=True, help="Prefer far-apart sampling")
+    args = parser.parse_args()
+
+    G = generate_graph(use_osm=True)
     assign_synthetic_features(G)
     apply_cost(G)
-    start, goal, G = choose_start_goal(G)
 
-    results = run_algorithms(G, start, goal)
+    rng = random.Random(args.seed)
+    start_node = args.start
+    goal_node = args.goal
+    if start_node is not None:
+        try:
+            start_node = eval(start_node)
+        except Exception:
+            pass
+    if goal_node is not None:
+        try:
+            goal_node = eval(goal_node)
+        except Exception:
+            pass
+
+    start, goal, G = choose_start_goal(
+        G,
+        start=start_node,
+        goal=goal_node,
+        random_pair=args.random_start_goal,
+        far_apart=args.far_apart,
+        rng=rng,
+    )
+
+    print(f"[info] Using start={start}, goal={goal}, nodes={len(G)}, edges={len(G.edges())}")
+
+    # Save a light base map preview
+    try:
+        fig, ax = ox.plot_graph(
+            G,
+            node_size=1,
+            node_color="#555555",
+            edge_color="#cccccc",
+            edge_linewidth=0.4,
+            bgcolor="white",
+            show=False,
+            close=False,
+        )
+        fig.savefig(OUTPUT_DIR / "map.png", dpi=180, bbox_inches="tight")
+        plt.close(fig)
+    except Exception as e:
+        print(f"[warn] map plot failed: {e}")
+
+    results = run_algorithms(G, start, goal, skip_uninformed=args.skip_uninformed, timeout=args.timeout)
     df = results_to_df(results)
     save_group_csvs(df)
 

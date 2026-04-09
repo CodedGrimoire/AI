@@ -74,8 +74,7 @@ def check_admissibility(G: nx.MultiDiGraph, goal: Hashable, h: Dict[Hashable, fl
 
 
 def build_graph():
-    center = (23.746, 90.376)  # Dhaka example
-    G = generate_graph(center, min_nodes=100, max_nodes=140)
+    G = generate_graph()
     assign_synthetic_features(G)
     apply_cost(G)
     start, goal, G_conn = choose_start_goal(G)

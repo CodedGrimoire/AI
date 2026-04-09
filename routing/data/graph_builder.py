@@ -1,7 +1,9 @@
 """Graph generation utilities using OSMnx.
 
-Sets PROJ_NETWORK=OFF up front so pyproj/osmnx avoid network fetches for
-grid files, which can hang in restricted environments.
+Default behaviour now builds the full Dhaka, Bangladesh road network
+(`network_type="drive"`) and keeps the largest strongly connected component
+to guarantee reachability for directed searches. A synthetic grid fallback is
+kept for offline scenarios.
 """
 
 from __future__ import annotations
@@ -55,40 +57,47 @@ def _synthetic_grid(target_nodes: int = 400, spacing: float = 30.0) -> nx.MultiD
     return G
 
 
-def generate_graph(center: tuple[float, float], min_nodes: int = 50, max_nodes: int = 200) -> nx.MultiDiGraph:
-    use_osm = os.environ.get("USE_OSM", "0") == "1"
+def generate_graph(use_osm: bool = True) -> nx.MultiDiGraph:
+    """Build the full Dhaka city drive network or a synthetic fallback.
+
+    Connectivity handling:
+    - For directed graphs, keep the largest strongly connected component so
+      start/goal pairs remain mutually reachable.
+    - If that fails, fall back to the largest weakly connected component.
+    """
+
     if not use_osm:
-        G = _synthetic_grid(target_nodes=max_nodes)
+        G = _synthetic_grid(target_nodes=400)
+        G.graph["graph_label"] = "Synthetic grid"
         print(f"[info] Synthetic grid | Nodes: {len(G)} | Edges: {len(G.edges())}")
         return G
 
     ox.settings.log_console = False
     ox.settings.use_cache = True
-    ox.settings.timeout = 20  # seconds per request
+    ox.settings.timeout = 60  # allow larger download
 
-    radius = 1000  # meters
-    G: nx.MultiDiGraph | None = None
-    start_time = time.time()
-
+    place_query = "Dhaka, Bangladesh"
     try:
-        while True:
-            G = ox.graph_from_point(center, dist=radius, network_type="drive")
-            if len(G) >= min_nodes:
-                break
-            radius = int(radius * 1.5)
-            if time.time() - start_time > 60:
-                raise TimeoutError("OSM download taking too long; falling back to synthetic grid")
-
-        if len(G) > max_nodes:
-            nodes = list(G.nodes)[:max_nodes]
-            G = G.subgraph(nodes).copy()
-
+        print(f"[info] Downloading OSM graph for: {place_query} (drive)")
+        G = ox.graph_from_place(place_query, network_type="drive", simplify=True)
         G = ox.project_graph(G)
-        G.graph["graph_label"] = "OSM graph"
-        print(f"[info] OSM graph loaded | Nodes: {len(G)} | Edges: {len(G.edges())}")
+
+        # Keep largest strongly connected component for directed routing.
+        try:
+            largest_strong = max(nx.strongly_connected_components(G), key=len)
+            G = G.subgraph(largest_strong).copy()
+            G.graph["component_type"] = "strongly_connected"
+        except Exception:
+            largest_weak = max(nx.weakly_connected_components(G), key=len)
+            G = G.subgraph(largest_weak).copy()
+            G.graph["component_type"] = "weakly_connected"
+
+        G.graph["graph_label"] = "Dhaka road network (OSM)"
+        print(f"[info] Dhaka graph ready | Nodes: {len(G)} | Edges: {len(G.edges())} | component: {G.graph.get('component_type')}")
         return G
     except Exception as e:
-        print(f"[warn] OSM graph load failed ({e}); using offline synthetic grid")
-        G = _synthetic_grid(target_nodes=max_nodes)
+        print(f"[warn] OSM Dhaka load failed ({e}); using offline synthetic grid")
+        G = _synthetic_grid(target_nodes=400)
+        G.graph["graph_label"] = "Synthetic grid"
         print(f"[info] Synthetic grid | Nodes: {len(G)} | Edges: {len(G.edges())}")
         return G

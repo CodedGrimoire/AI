@@ -1,0 +1,34 @@
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+*.DS_Store
+.Python
+env/
+venv/
+.venv/
+*.env
+*.egg-info/
+
+# Editors/OS
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# Build/output
+dist/
+build/
+*.egg
+*.log
+
+# Experiment artifacts
+images/
+cache/
+
+# OSMnx cache (if any)
+*.osm
+*.graphml
+*.gpickle
+

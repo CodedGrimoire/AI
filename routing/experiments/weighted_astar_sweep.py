@@ -55,9 +55,7 @@ def choose_start_goal(G: nx.MultiDiGraph):
 
 
 def run_sweep(weights: List[float]) -> None:
-    center = (23.746, 90.376)  # Dhaka example
-
-    G = generate_graph(center, min_nodes=100, max_nodes=140)
+    G = generate_graph()
     assign_synthetic_features(G)
     apply_cost(G)
 

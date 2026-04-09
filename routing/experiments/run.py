@@ -46,6 +46,18 @@ from routing.algorithms import (
 OUTPUT_DIR = Path("images")
 OUTPUT_DIR.mkdir(exist_ok=True)
 
+DIRS = {
+    "bars": OUTPUT_DIR / "bars",
+    "scatter": OUTPUT_DIR / "scatter",
+    "weighted_astar": OUTPUT_DIR / "weighted_astar",
+    "depth": OUTPUT_DIR / "depth",
+    "paths": OUTPUT_DIR / "paths",
+    "overlays": OUTPUT_DIR / "overlays",
+    "explored": OUTPUT_DIR / "explored",
+}
+for _p in DIRS.values():
+    _p.mkdir(parents=True, exist_ok=True)
+
 WEIGHTS = [0.5, 1.0, 1.5, 2.0, 3.0]
 DLS_LIMITS = [2, 4, 6, 8, 10, 15, 20, 25, 30]
 
@@ -243,18 +255,26 @@ def save_group_csvs(df: pd.DataFrame):
         wa.to_csv(OUTPUT_DIR / "weighted_astar_sweep_results.csv", index=False)
 
 
-def bar_charts(df: pd.DataFrame, metrics: Sequence[str], prefix: str):
+def _out(name: str) -> Path:
+    return OUTPUT_DIR / name
+
+
+def _subdir(name: str) -> Path:
+    return DIRS.get(name, OUTPUT_DIR)
+
+
+def bar_charts(df: pd.DataFrame, metrics: Sequence[str], prefix: str, subdir: str = "bars"):
     for metric in metrics:
         plt.figure(figsize=(9, 4))
         plt.bar(df["algorithm_name"], df[metric], color="steelblue")
         plt.xticks(rotation=45, ha="right")
         plt.title(f"{prefix} {metric}")
         plt.tight_layout()
-        plt.savefig(OUTPUT_DIR / f"{prefix}_{metric}.png", dpi=150)
+        plt.savefig(_subdir(subdir) / f"{prefix}_{metric}.png", dpi=150)
         plt.close()
 
 
-def scatter_charts(df: pd.DataFrame, pairs: Sequence[tuple], prefix: str):
+def scatter_charts(df: pd.DataFrame, pairs: Sequence[tuple], prefix: str, subdir: str = "scatter"):
     for x, y, fname in pairs:
         plt.figure(figsize=(6, 4))
         plt.scatter(df[x], df[y], color="darkorange")
@@ -264,18 +284,18 @@ def scatter_charts(df: pd.DataFrame, pairs: Sequence[tuple], prefix: str):
         plt.ylabel(y)
         plt.grid(True, linestyle="--", alpha=0.4)
         plt.tight_layout()
-        plt.savefig(OUTPUT_DIR / f"{prefix}_{fname}.png", dpi=150)
+        plt.savefig(_subdir(subdir) / f"{prefix}_{fname}.png", dpi=150)
         plt.close()
 
 
-def rank_plot(df: pd.DataFrame, metric: str, prefix: str):
+def rank_plot(df: pd.DataFrame, metric: str, prefix: str, subdir: str = "bars"):
     sorted_df = df.sort_values(metric)
     plt.figure(figsize=(8, 4))
     plt.bar(sorted_df["algorithm_name"], sorted_df[metric], color="seagreen")
     plt.xticks(rotation=45, ha="right")
     plt.title(f"Ranking by {metric}")
     plt.tight_layout()
-    plt.savefig(OUTPUT_DIR / f"{prefix}_rank_{metric}.png", dpi=150)
+    plt.savefig(_subdir(subdir) / f"{prefix}_rank_{metric}.png", dpi=150)
     plt.close()
 
 
@@ -298,27 +318,27 @@ def weighted_astar_plots(df: pd.DataFrame):
         plt.ylabel(metric)
         plt.title(f"Weighted A* : {metric} vs w")
         plt.tight_layout()
-        plt.savefig(OUTPUT_DIR / fname, dpi=150)
+        plt.savefig(_subdir("weighted_astar") / fname, dpi=150)
         plt.close()
 
 
 def path_visuals(G: nx.MultiDiGraph, results: List[SearchResult], start, goal):
     for res in results:
-        fname = OUTPUT_DIR / f"path_{slugify(res.algorithm_name)}.png"
+        fname = _subdir("paths") / f"path_{slugify(res.algorithm_name)}.png"
         plot_single_route(G, res.path, res.algorithm_name, color=None, filename=fname)
 
     # overlays
     paths_all = {r.algorithm_name: r.path for r in results if r.path_found and r.path}
     if paths_all:
-        plot_all_routes(G, paths_all, start, goal, filename=OUTPUT_DIR / "overlay_all_algorithms_paths.png")
+        plot_all_routes(G, paths_all, start, goal, filename=_subdir("overlays") / "overlay_all_algorithms_paths.png")
 
     paths_uninformed = {r.algorithm_name: r.path for r in results if r.algorithm_name in UNINFORMED_ORDER and r.path_found and r.path}
     if paths_uninformed:
-        plot_all_routes(G, paths_uninformed, start, goal, filename=OUTPUT_DIR / "overlay_uninformed_paths.png")
+        plot_all_routes(G, paths_uninformed, start, goal, filename=_subdir("overlays") / "overlay_uninformed_paths.png")
 
     paths_informed = {r.algorithm_name: r.path for r in results if r.algorithm_name in INFORMED_ORDER and r.path_found and r.path and (r.weight in (None, 1.0))}
     if paths_informed:
-        plot_all_routes(G, paths_informed, start, goal, filename=OUTPUT_DIR / "overlay_informed_paths.png")
+        plot_all_routes(G, paths_informed, start, goal, filename=_subdir("overlays") / "overlay_informed_paths.png")
 
     # Best-path highlight plots
     if paths_all:
@@ -330,14 +350,14 @@ def path_visuals(G: nx.MultiDiGraph, results: List[SearchResult], start, goal):
         for name in {best_cost, best_time, best_expanded}:
             res = next(r for r in results if r.algorithm_name == name)
             highlight[name] = res.path
-        plot_all_routes(G, highlight, start, goal, filename=OUTPUT_DIR / "overlay_best_algorithms.png")
+        plot_all_routes(G, highlight, start, goal, filename=_subdir("overlays") / "overlay_best_algorithms.png")
 
 
 def explored_visuals(G: nx.MultiDiGraph, results: List[SearchResult]):
     targets = {"Breadth-first search (BFS)", "Uniform cost search", "Greedy best-first search", "A* search", "Weighted A*"}
     for res in results:
         if res.algorithm_name in targets and res.expanded_nodes is not None:
-            fname = OUTPUT_DIR / f"explored_{slugify(res.algorithm_name)}.png"
+            fname = _subdir("explored") / f"explored_{slugify(res.algorithm_name)}.png"
             plot_explored_nodes(G, res.expanded_nodes, res.path, res.algorithm_name, filename=fname)
 
     # comparisons
@@ -364,7 +384,7 @@ def explored_visuals(G: nx.MultiDiGraph, results: List[SearchResult]):
         plt.legend(loc="best", frameon=False)
         plt.title(f"Explored comparison: {a} vs {b}")
         plt.tight_layout()
-        plt.savefig(OUTPUT_DIR / fname, dpi=180, bbox_inches="tight")
+        plt.savefig(_subdir("explored") / fname, dpi=180, bbox_inches="tight")
         plt.close()
 
 

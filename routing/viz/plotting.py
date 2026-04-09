@@ -14,6 +14,15 @@ COLORS = {
     "Greedy": "orange",
     "A*": "green",
     "Weighted A*": "red",
+    "Breadth-first search (BFS)": "#1f77b4",
+    "Uniform cost search": "#9467bd",
+    "Depth-first search (DFS)": "#8c564b",
+    "Depth Limited Search": "#e377c2",
+    "Iterative Deepening Search": "#7f7f7f",
+    "Bidirectional Search": "#bcbd22",
+    "Greedy best-first search": "#ff7f0e",
+    "A* search": "#2ca02c",
+}
 }
 
 OUTPUT_DIR = Path("images")

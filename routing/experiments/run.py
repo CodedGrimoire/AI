@@ -1,43 +1,48 @@
-"""Run end-to-end routing experiments on an OSMnx graph.
+"""Unified experiment runner comparing uninformed and informed search algorithms.
 
-Steps:
-1) Generate graph
-2) Assign synthetic features (kept for analysis)
-3) Attach distance-only edge costs
-4) Pick start/goal
-5) Run Dijkstra, Greedy, A*, Weighted A*
-6) Print comparison table and save plots
+Naming strictly follows lecture notes:
+- Breadth-first search (BFS)
+- Uniform cost search
+- Depth-first search (DFS)
+- Depth Limited Search
+- Iterative Deepening Search
+- Bidirectional Search
+- Greedy best-first search
+- A* search
+- Weighted A*
+
+Edge cost: distance-only (custom_cost set by data pipeline).
+Heuristic: exponential feature heuristic defined in routing.heuristics.spatial.
 """
 
 from __future__ import annotations
 
 from pathlib import Path
+from typing import Callable, List
 
-import networkx as nx
-import pandas as pd
 import matplotlib
 
-# Force non-interactive backend to prevent GUI hangs
-matplotlib.use("Agg")
+matplotlib.use("Agg")  # non-interactive backend
 import matplotlib.pyplot as plt
+import networkx as nx
+import pandas as pd
 
 from routing.data.graph_builder import generate_graph
 from routing.data.features_costs import assign_synthetic_features, apply_cost
-from routing.heuristics.spatial import (
-    euclidean_heuristic,
-    exponential_feature_heuristic,
-    HEURISTIC_ALPHA,
-    HEURISTIC_BETA,
-    HEURISTIC_GAMMA,
-    HEURISTIC_LAMBDA,
-)
+from routing.heuristics.spatial import exponential_feature_heuristic, euclidean_heuristic
 from routing.viz.plotting import plot_all_routes, plot_single_route
-from routing.algorithms.search import (
-    dijkstra_search,
+from routing.algorithms import (
+    SearchResult,
+    compute_path_cost,
+    breadth_first_search,
+    uniform_cost_search,
+    depth_first_search,
+    depth_limited_search,
+    iterative_deepening_search,
+    bidirectional_search,
     greedy_best_first_search,
     a_star_search,
     weighted_a_star_search,
-    compute_path_cost,
 )
 
 
@@ -46,169 +51,198 @@ OUTPUT_DIR.mkdir(exist_ok=True)
 
 
 def choose_start_goal(G: nx.MultiDiGraph):
-    # ensure connectivity: use largest weakly connected component
+    """Pick a well-separated start/goal pair (farthest pair heuristic)."""
     if not nx.is_weakly_connected(G):
         largest_cc = max(nx.weakly_connected_components(G), key=len)
         G = G.subgraph(largest_cc).copy()
 
     nodes = list(G.nodes)
-    # choose farthest pair to get opposite ends
     start = nodes[0]
     goal = max(nodes, key=lambda n: euclidean_heuristic(G, start, n, 1.0))
-    # refine: pick farthest from that goal for start to maximize separation
     start = max(nodes, key=lambda n: euclidean_heuristic(G, n, goal, 1.0))
     return start, goal, G
 
 
-def run_all(G: nx.MultiDiGraph, start, goal):
-    # Exponential heuristic using node-aggregated features
+def run_all_algorithms(G: nx.MultiDiGraph, start, goal) -> List[SearchResult]:
     h_fn = exponential_feature_heuristic(G, goal)
 
-    runs = [
-        ("Dijkstra", None, None, lambda: dijkstra_search(G, start, goal, heuristic=lambda n: 0.0)),
-        ("Greedy", None, None, lambda: greedy_best_first_search(G, start, goal, h_fn)),
+    algorithms: List[Callable[[], SearchResult]] = [
+        lambda: breadth_first_search(G, start, goal),
+        lambda: uniform_cost_search(G, start, goal),
+        lambda: depth_first_search(G, start, goal),
+        lambda: depth_limited_search(G, start, goal, limit=20),
+        lambda: iterative_deepening_search(G, start, goal, max_depth=40),
+        lambda: bidirectional_search(G, start, goal),
+        lambda: greedy_best_first_search(G, start, goal, h_fn),
+        lambda: a_star_search(G, start, goal, h_fn),
     ]
 
-    # A* variants reusing the same exponential heuristic
-    runs.append(("A*", 1.0, None, lambda h=h_fn: a_star_search(G, start, goal, h)))
+    # Weighted A* sweep (required weights)
+    for w in [0.5, 1.0, 1.5, 2.0, 3.0]:
+        algorithms.append(lambda w=w: weighted_a_star_search(G, start, goal, h_fn, w=w))
 
-    # Weighted A* with different weights using the same h
-    for w in [1.0, 1.5, 2.0, 3.0]:
-        runs.append(("WA*", 1.0, w, lambda w=w: weighted_a_star_search(G, start, goal, h_fn, w=w)))
-
-    results = []
-    for name, k, w, fn in runs:
-        path, g_cost, expanded, elapsed = fn()
-        total_cost = compute_path_cost(G, path)
-        results.append((name, k, w, total_cost, expanded, elapsed, len(path), path))
+    results: List[SearchResult] = []
+    for fn in algorithms:
+        res = fn()
+        results.append(res)
     return results
 
 
-def print_table(results):
-    print("\nAlgorithm Comparison")
-    print("{:<8} {:>4} {:>4} {:>12} {:>12} {:>10} {:>10}".format("Alg", "k", "w", "Path Cost", "Expanded", "Time(s)", "Path len"))
-    for name, k, w, cost, expd, t, plen, _ in results:
-        print(f"{name:<8} {str(k):>4} {str(w):>4} {cost:>12.2f} {expd:>12d} {t:>10.4f} {plen:>10d}")
+def results_to_df(results: List[SearchResult]) -> pd.DataFrame:
+    records = []
+    for r in results:
+        records.append(
+            {
+                "algorithm_name": r.algorithm_name,
+                "path_found": r.path_found,
+                "total_path_cost": r.total_path_cost,
+                "nodes_expanded": r.nodes_expanded,
+                "execution_time": r.execution_time,
+                "max_frontier_size": r.max_frontier_size,
+                "path_length": r.path_length,
+                "visited_count": r.visited_count,
+                "depth_reached": r.depth_reached,
+                "cutoff_occurred": r.cutoff_occurred,
+                "meeting_node": r.meeting_node,
+                "weight": r.weight,
+            }
+        )
+    return pd.DataFrame(records)
 
 
-def plot_cost_vs_expansion(results, filename: str | Path | None = None):
-    colors = {
-        "Dijkstra": "#1f77b4",
-        "Greedy": "#ff7f0e",
-        "A*": "#2ca02c",
-        "Weighted A*": "#d62728",
-    }
-
-    fig, ax = plt.subplots(figsize=(6, 4))
-    for name, k, w, cost, expd, _, _, _ in results:
-        label = name if name != "WA*" else "Weighted A*"
-        color = colors.get(label, "gray")
-        size = 70 if label == "Greedy" else 50
-        ax.scatter(expd, cost, color=color, s=size, zorder=3)
-        offset = (6, -10) if label == "Greedy" else (4, 4)
-        ax.annotate(label, (expd, cost), textcoords="offset points", xytext=offset, fontsize=9, weight="bold" if label == "Greedy" else "normal")
-
-    ax.set_xlabel("Nodes Expanded")
-    ax.set_ylabel("Path Cost")
-    ax.set_title("Cost vs Nodes Expanded (Efficiency vs Quality)")
-    ax.grid(True, linestyle="--", alpha=0.4)
-    ax.tick_params(axis="both", labelsize=9)
-    out_path = Path(filename) if filename is not None else OUTPUT_DIR / "cost_vs_expansion.png"
-    plt.tight_layout()
-    plt.savefig(out_path, dpi=150)
-    plt.close(fig)
+def save_csv(df: pd.DataFrame, filename: Path):
+    df.to_csv(filename, index=False)
 
 
-def plot_weight_sweeps(results, filename: str | Path | None = None):
-    df = pd.DataFrame(results, columns=["alg", "k", "w", "cost", "expanded", "time", "plen", "path"])
-    wa = df[df.alg == "WA*"]
+def plot_bars(df: pd.DataFrame):
+    metrics = [
+        ("total_path_cost", "Total Path Cost"),
+        ("nodes_expanded", "Nodes Expanded"),
+        ("execution_time", "Execution Time (s)"),
+        ("path_length", "Path Length (nodes)"),
+        ("max_frontier_size", "Max Frontier Size"),
+    ]
+    for key, title in metrics:
+        plt.figure(figsize=(8, 4))
+        plt.bar(df["algorithm_name"], df[key], color="steelblue")
+        plt.xticks(rotation=45, ha="right")
+        plt.title(title)
+        plt.tight_layout()
+        plt.savefig(OUTPUT_DIR / f"bar_{key}.png", dpi=150)
+        plt.close()
+
+
+def plot_scatters(df: pd.DataFrame):
+    pairs = [
+        ("nodes_expanded", "total_path_cost", "Nodes Expanded", "Total Path Cost", "scatter_expanded_cost.png"),
+        ("execution_time", "total_path_cost", "Execution Time (s)", "Total Path Cost", "scatter_time_cost.png"),
+        ("execution_time", "nodes_expanded", "Execution Time (s)", "Nodes Expanded", "scatter_time_expanded.png"),
+    ]
+    for x, y, xl, yl, fname in pairs:
+        plt.figure(figsize=(6, 4))
+        plt.scatter(df[x], df[y], color="darkorange")
+        for _, row in df.iterrows():
+            plt.annotate(row["algorithm_name"], (row[x], row[y]), textcoords="offset points", xytext=(4, 4), fontsize=8)
+        plt.xlabel(xl)
+        plt.ylabel(yl)
+        plt.tight_layout()
+        plt.grid(True, linestyle="--", alpha=0.4)
+        plt.savefig(OUTPUT_DIR / fname, dpi=150)
+        plt.close()
+
+
+def plot_weighted_astar(df: pd.DataFrame):
+    wa = df[df["algorithm_name"] == "Weighted A*"]
     if wa.empty:
         return
-
-    fig, ax = plt.subplots(1, 2, figsize=(10, 4))
-    ax[0].plot(wa["w"], wa["cost"], marker="o")
-    ax[0].set_xlabel("w")
-    ax[0].set_ylabel("Path cost")
-    ax[0].set_title("WA*: cost vs w")
-
-    ax[1].plot(wa["w"], wa["expanded"], marker="o", color="darkgreen")
-    ax[1].set_xlabel("w")
-    ax[1].set_ylabel("Nodes expanded")
-    ax[1].set_title("WA*: expansions vs w")
-
-    out_path = Path(filename) if filename is not None else OUTPUT_DIR / "wa_sweep.png"
+    plt.figure(figsize=(6, 4))
+    plt.plot(wa["weight"], wa["total_path_cost"], marker="o")
+    plt.xlabel("Weight w")
+    plt.ylabel("Total Path Cost")
+    plt.title("Weighted A*: cost vs w")
     plt.tight_layout()
-    plt.savefig(out_path, dpi=150)
-    plt.close(fig)
+    plt.savefig(OUTPUT_DIR / "wa_cost_vs_w.png", dpi=150)
+    plt.close()
+
+    plt.figure(figsize=(6, 4))
+    plt.plot(wa["weight"], wa["nodes_expanded"], marker="o", color="seagreen")
+    plt.xlabel("Weight w")
+    plt.ylabel("Nodes Expanded")
+    plt.title("Weighted A*: expansions vs w")
+    plt.tight_layout()
+    plt.savefig(OUTPUT_DIR / "wa_expanded_vs_w.png", dpi=150)
+    plt.close()
+
+    plt.figure(figsize=(6, 4))
+    plt.plot(wa["weight"], wa["execution_time"], marker="o", color="purple")
+    plt.xlabel("Weight w")
+    plt.ylabel("Execution Time (s)")
+    plt.title("Weighted A*: time vs w")
+    plt.tight_layout()
+    plt.savefig(OUTPUT_DIR / "wa_time_vs_w.png", dpi=150)
+    plt.close()
+
+    plt.figure(figsize=(6, 4))
+    plt.plot(wa["weight"], wa["path_length"], marker="o", color="brown")
+    plt.xlabel("Weight w")
+    plt.ylabel("Path Length (nodes)")
+    plt.title("Weighted A*: path length vs w")
+    plt.tight_layout()
+    plt.savefig(OUTPUT_DIR / "wa_pathlen_vs_w.png", dpi=150)
+    plt.close()
+
+
+def plot_depth_variants(df: pd.DataFrame):
+    dls = df[df["algorithm_name"] == "Depth Limited Search"]
+    ids = df[df["algorithm_name"] == "Iterative Deepening Search"]
+    if not dls.empty:
+        plt.figure(figsize=(5, 3))
+        plt.bar(["DLS"], dls["nodes_expanded"], color="gray")
+        plt.ylabel("Nodes Expanded")
+        plt.title("Depth Limited Search (single run)")
+        plt.tight_layout()
+        plt.savefig(OUTPUT_DIR / "dls_nodes.png", dpi=150)
+        plt.close()
+    if not ids.empty:
+        plt.figure(figsize=(5, 3))
+        plt.bar(["IDS"], ids["nodes_expanded"], color="teal")
+        plt.ylabel("Nodes Expanded")
+        plt.title("Iterative Deepening Search")
+        plt.tight_layout()
+        plt.savefig(OUTPUT_DIR / "ids_nodes.png", dpi=150)
+        plt.close()
+
+
+def plot_routes(G: nx.MultiDiGraph, results: List[SearchResult], start, goal):
+    paths = {}
+    for res in results:
+        if res.path_found and res.path:
+            paths[res.algorithm_name] = res.path
+            plot_single_route(G, res.path, res.algorithm_name, color=None)
+    if paths:
+        plot_all_routes(G, paths, start, goal)
 
 
 def main():
     center = (23.746, 90.376)  # Dhaka example
-    # Smaller graph for quicker runs while keeping variability
     G = generate_graph(center, min_nodes=100, max_nodes=140)
-
     assign_synthetic_features(G)
-
-    # Distance-only cost assignment
     apply_cost(G)
-    start, goal, G_conn = choose_start_goal(G)
-    results = run_all(G_conn, start, goal)
-    print_table(results)
-    plot_weight_sweeps(results)
-    plot_cost_vs_expansion(results)
 
-    # Route overlays and per-route PNGs (baseline variants)
-    base_paths = {
-        "Dijkstra": next(p for p in results if p[0] == "Dijkstra")[7],
-        "Greedy": next(p for p in results if p[0] == "Greedy")[7],
-        "A*": next(p for p in results if p[0] == "A*" and p[1] == 1.0)[7],
-        "Weighted A*": next(p for p in results if p[0] == "WA*" and p[2] == 1.5)[7],
-    }
-    plot_all_routes(G_conn, base_paths, start, goal)
-    plot_single_route(G_conn, base_paths["Dijkstra"], "Dijkstra", color="blue", filename=OUTPUT_DIR / "dijkstra.png")
-    plot_single_route(G_conn, base_paths["Greedy"], "Greedy", color="orange", filename=OUTPUT_DIR / "greedy.png")
-    plot_single_route(G_conn, base_paths["A*"], "A*", color="green", filename=OUTPUT_DIR / "astar.png")
-    plot_single_route(G_conn, base_paths["Weighted A*"], "Weighted A*", color="red", filename=OUTPUT_DIR / "weighted_astar.png")
+    start, goal, G = choose_start_goal(G)
+    results = run_all_algorithms(G, start, goal)
 
-    # Charts: expanded, time, cost vs Dijkstra baseline (using base variants)
-    df_lin = pd.DataFrame(results, columns=["alg", "k", "w", "cost", "expanded", "time", "plen", "path"])
-    base_cost = df_lin[df_lin.alg == "Dijkstra"].iloc[0]["cost"]
+    df = results_to_df(results)
+    save_csv(df, OUTPUT_DIR / "algorithm_comparison.csv")
 
-    # Select base variants for bars: Dijkstra, Greedy, A* (k=1), WA* (w=1.5)
-    base_rows = df_lin[
-        ((df_lin.alg == "Dijkstra"))
-        | ((df_lin.alg == "Greedy"))
-        | ((df_lin.alg == "A*") & (df_lin.k == 1.0))
-        | ((df_lin.alg == "WA*") & (df_lin.w == 1.5))
-    ].copy()
+    # Prints summary table
+    print(df[["algorithm_name", "total_path_cost", "nodes_expanded", "execution_time", "path_length", "max_frontier_size", "weight"]])
 
-    fig, axes = plt.subplots(1, 3, figsize=(12, 3))
-    axes[0].bar(base_rows["alg"], base_rows["expanded"], color="skyblue")
-    axes[0].set_title("Nodes Expanded")
-    axes[1].bar(base_rows["alg"], base_rows["time"], color="salmon")
-    axes[1].set_title("Time (s)")
-    axes[2].bar(base_rows["alg"], base_rows["cost"], color="seagreen")
-    axes[2].axhline(base_cost, color="black", linestyle="--", label="Dijkstra cost")
-    axes[2].set_title("Path Cost vs Dijkstra")
-    axes[2].legend()
-    for ax in axes:
-        ax.tick_params(axis='x', rotation=45)
-    plt.tight_layout()
-    plt.savefig(OUTPUT_DIR / "alg_comparison_bars.png", dpi=150)
-    plt.close(fig)
-
-    # Accuracy plot: cost ratio vs Dijkstra
-    base_costs = base_rows.set_index("alg")["cost"]
-    ratios = base_costs / base_cost
-    plt.figure(figsize=(4,3))
-    ratios.plot(kind="bar", color="purple")
-    plt.axhline(1.0, color="black", linestyle="--", label="Dijkstra")
-    plt.ylabel("Cost / Dijkstra")
-    plt.title("Accuracy vs Dijkstra")
-    plt.legend()
-    plt.tight_layout()
-    plt.savefig(OUTPUT_DIR / "accuracy_vs_dijkstra.png", dpi=150)
-    plt.close()
+    plot_bars(df)
+    plot_scatters(df)
+    plot_weighted_astar(df)
+    plot_depth_variants(df)
+    plot_routes(G, results, start, goal)
 
 
 if __name__ == "__main__":

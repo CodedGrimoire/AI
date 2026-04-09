@@ -1,4 +1,4 @@
-"""Empirically verify Euclidean heuristic for admissibility and consistency.
+"""Empirically verify exponential heuristic for admissibility and consistency.
 
 Usage:
     python heuristic_verification.py
@@ -7,7 +7,7 @@ Graph + costs come from the existing pipeline:
 - route_planning.graph_builder.generate_graph
 - route_planning.features_costs.assign_synthetic_features / apply_cost
 
-Heuristic: Euclidean distance to the chosen goal node (scale = 1.0).
+Heuristic: exponential feature heuristic to the chosen goal node.
 
 Checks:
 - Consistency: h(u) <= c(u,v) + h(v) for every directed edge (uses min custom_cost per multi-edge).
@@ -26,7 +26,7 @@ import networkx as nx
 from routing.data.graph_builder import generate_graph
 from routing.data.features_costs import assign_synthetic_features, apply_cost
 from routing.heuristics.spatial import euclidean_heuristic, exponential_feature_heuristic
-from routing.algorithms.search import dijkstra_search
+from routing.algorithms import uniform_cost_search
 from routing.experiments.run import choose_start_goal
 
 
@@ -56,9 +56,9 @@ def check_consistency(G: nx.MultiDiGraph, h: Dict[Hashable, float]):
 
 
 def dijkstra_true_cost(G: nx.MultiDiGraph, start: Hashable, goal: Hashable) -> float:
-    # Reuse provided Dijkstra implementation (edge cost = custom_cost with default 1.0).
-    path, g_cost, _, _ = dijkstra_search(G, start, goal, heuristic=lambda n: 0.0)
-    return g_cost if path else float("inf")
+    # Uniform cost search equals Dijkstra on positive edge distances.
+    res = uniform_cost_search(G, start, goal)
+    return res.total_path_cost if res.path_found else float("inf")
 
 
 def check_admissibility(G: nx.MultiDiGraph, goal: Hashable, h: Dict[Hashable, float]):

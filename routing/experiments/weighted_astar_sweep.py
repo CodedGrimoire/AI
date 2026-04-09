@@ -22,8 +22,8 @@ import networkx as nx
 from routing.data.graph_builder import generate_graph
 from routing.data.features_costs import assign_synthetic_features, apply_cost
 from routing.heuristics.spatial import euclidean_heuristic, exponential_feature_heuristic
-from routing.algorithms.search import (
-    dijkstra_search,
+from routing.algorithms import (
+    uniform_cost_search,
     weighted_a_star_search,
     compute_path_cost,
 )
@@ -63,9 +63,9 @@ def run_sweep(weights: List[float]) -> None:
 
     start, goal, G = choose_start_goal(G)
 
-    # Optimal baseline with Dijkstra (admissible, ignores heuristic)
-    d_path, d_g, d_exp, d_time = dijkstra_search(G, start, goal, heuristic=lambda n: 0.0)
-    d_cost = compute_path_cost(G, d_path)
+    # Optimal baseline with Uniform Cost Search (distance-only)
+    d_res = uniform_cost_search(G, start, goal)
+    d_cost = d_res.total_path_cost
 
     h_fn = exponential_feature_heuristic(G, goal)
 

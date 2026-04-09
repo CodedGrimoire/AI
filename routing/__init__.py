@@ -9,7 +9,7 @@ from routing.algorithms.search import (
 )
 from routing.data.graph_builder import generate_graph
 from routing.data.features_costs import assign_synthetic_features, apply_cost
-from routing.heuristics.spatial import euclidean_heuristic
+from routing.heuristics.spatial import euclidean_heuristic, exponential_feature_heuristic
 from routing.viz.plotting import plot_all_routes, plot_single_route
 
 __all__ = [
@@ -22,6 +22,7 @@ __all__ = [
     "assign_synthetic_features",
     "apply_cost",
     "euclidean_heuristic",
+    "exponential_feature_heuristic",
     "plot_all_routes",
     "plot_single_route",
 ]

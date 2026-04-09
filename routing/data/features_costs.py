@@ -1,59 +1,33 @@
-"""Synthetic feature assignment and custom edge cost computation."""
+"""Synthetic feature assignment and distance-only edge cost computation.
+
+This module now separates *features* from the actual traversal cost:
+- Synthetic features (traffic_level, accident_risk, bumpiness, safety_score)
+  are still generated and stored on edges for analysis/debugging.
+- The traversal cost used by all search algorithms is *only* the physical
+  distance between adjacent nodes (edge length or Euclidean fallback).
+
+It also computes per-node feature averages so heuristic functions can read
+T(n), A(n), B(n), S(n) directly from node attributes.
+"""
 
 from __future__ import annotations
 
+import math
 import random
-from typing import Any, Dict, Optional
+from typing import Any, Dict, Iterable
+
 import networkx as nx
 
 
 RANDOM_SEED = 12345
 random.seed(RANDOM_SEED)
 
-# Config flags (default to legacy behaviour)
-USE_NONLINEAR = False
-USE_THRESHOLD = False
-USE_TIME = False
-VERY_LARGE_COST = 1e9
 SMALL_COST_FLOOR = 1e-6
 
-# Predefined user profiles (weights mirror legacy defaults unless overridden)
-USER_PROFILES: Dict[str, Dict[str, float]] = {
-    # Balanced roughly matches DEFAULT_WEIGHTS from existing experiments
-    "balanced": {
-        "w_distance": 1.0,
-        "w_accident": 35.0,
-        "w_traffic": 20.0,
-        "w_bump": 12.0,
-        "w_safety": 15.0,
-    },
-    # Prioritise speed: higher distance weight, softer accident/traffic penalties
-    "fastest": {
-        "w_distance": 1.5,
-        "w_accident": 15.0,
-        "w_traffic": 10.0,
-        "w_bump": 10.0,
-        "w_safety": 8.0,
-    },
-    # Prioritise safety: strong accident penalty and safety reward
-    "safest": {
-        "w_distance": 0.8,
-        "w_accident": 55.0,
-        "w_traffic": 22.0,
-        "w_bump": 12.0,
-        "w_safety": 25.0,
-    },
-    # Eco/comfort: heavier bumpiness penalty to avoid rough roads
-    "eco": {
-        "w_distance": 1.0,
-        "w_accident": 28.0,
-        "w_traffic": 18.0,
-        "w_bump": 22.0,
-        "w_safety": 15.0,
-    },
-}
 
-
+# ---------------------------------------------------------------------------
+# Synthetic feature generation (unchanged semantics)
+# ---------------------------------------------------------------------------
 def assign_synthetic_features(G: nx.MultiDiGraph) -> None:
     """Add structured synthetic attributes to each edge.
 
@@ -63,29 +37,20 @@ def assign_synthetic_features(G: nx.MultiDiGraph) -> None:
     Safety: inverse of accident with small noise.
     """
 
-    # Choose high-risk edges (clustered subset)
     edges = list(G.edges(keys=True))
+    if not edges:
+        return
+
     high_risk_count = max(1, int(0.2 * len(edges)))
     high_risk_edges = set(random.sample(edges, high_risk_count))
 
-    for edge in edges:
-        u, v, k = edge
+    for u, v, k in edges:
         data = G[u][v][k]
         length = float(data.get("length", 30.0))
 
-        # Traffic increases with length (scale ~ 800m)
         traffic = min(1.0, length / 800.0)
-
-        # Accident risk clustered
-        if edge in high_risk_edges:
-            accident = random.uniform(0.8, 1.0)
-        else:
-            accident = random.uniform(0.05, 0.3)
-
-        # Bumpiness slightly correlated with length + noise
+        accident = random.uniform(0.8, 1.0) if (u, v, k) in high_risk_edges else random.uniform(0.05, 0.3)
         bump = max(0.0, min(1.0, 0.3 + length / 1500.0 + random.uniform(-0.15, 0.15)))
-
-        # Safety inverse to accident with small noise
         safety = max(0.0, min(1.0, 1.0 - accident + random.uniform(-0.05, 0.05)))
 
         data["traffic_level"] = traffic
@@ -94,114 +59,86 @@ def assign_synthetic_features(G: nx.MultiDiGraph) -> None:
         data["safety_score"] = safety
 
 
-def _resolve_weights(weights: Optional[Dict[str, float]], user_profile: Optional[str]) -> Dict[str, float]:
-    """Choose weights; prefer explicit weights to keep backward compatibility."""
-
-    if weights is not None:
-        return weights
-
-    if user_profile and user_profile in USER_PROFILES:
-        return USER_PROFILES[user_profile]
-
-    # Fallback to balanced if nothing else is provided
-    return USER_PROFILES["balanced"]
-
-
-def _adjust_traffic_level(base_level: float, time_of_day: Optional[str], use_time: bool) -> float:
-    """Simple time-of-day scaling for traffic."""
-
-    if not use_time:
-        return base_level
-
-    if time_of_day == "morning":
-        return base_level * 1.5
-    if time_of_day == "night":
-        return base_level * 0.7
-    # noon / None → unchanged
-    return base_level
+# ---------------------------------------------------------------------------
+# Distance-only cost model
+# ---------------------------------------------------------------------------
+def _euclidean_length(G: nx.MultiDiGraph, u, v) -> float:
+    """Fallback Euclidean distance using node coordinates."""
+    ux, uy = G.nodes[u].get("x"), G.nodes[u].get("y")
+    vx, vy = G.nodes[v].get("x"), G.nodes[v].get("y")
+    if ux is None or uy is None or vx is None or vy is None:
+        return 1.0  # best-effort default
+    return math.hypot(ux - vx, uy - vy)
 
 
-def edge_cost(
-    data: Dict[str, Any],
-    weights: Optional[Dict[str, float]] = None,
-    *,
-    user_profile: Optional[str] = None,
-    use_nonlinear: bool = USE_NONLINEAR,
-    use_threshold: bool = USE_THRESHOLD,
-    time_of_day: Optional[str] = None,
-    use_time: bool = USE_TIME,
-    very_large_cost: float = VERY_LARGE_COST,
-) -> float:
-    """Compute edge cost with optional advanced models.
+def compute_edge_distance(G: nx.MultiDiGraph, u, v, data: Dict[str, Any]) -> float:
+    """Return the physical distance for an edge, with safe defaults."""
+    length = data.get("length")
+    if length is None:
+        return _euclidean_length(G, u, v)
+    try:
+        return float(length)
+    except (TypeError, ValueError):
+        return _euclidean_length(G, u, v)
 
-    Backward compatible: if called with only (data, weights), behaviour matches the
-    original linear model. Extra features are opt-in via keyword arguments.
+
+def apply_cost(G: nx.MultiDiGraph) -> None:
+    """Attach `custom_cost` = physical distance to every edge.
+
+    Previous composite models (traffic/accident/bumpiness/safety) are no longer
+    part of the traversal cost. Those features remain available on edges and
+    are also aggregated to nodes for heuristic use.
     """
 
-    w = _resolve_weights(weights, user_profile)
+    for u, v, k, data in G.edges(keys=True, data=True):
+        dist = compute_edge_distance(G, u, v, data)
+        data["custom_cost"] = max(dist, SMALL_COST_FLOOR)
 
-    length = float(data.get("length", 1.0))
-    accident = float(data.get("accident_risk", 0.0))
-    traffic = _adjust_traffic_level(float(data.get("traffic_level", 0.0)), time_of_day, use_time)
-    bumpiness = float(data.get("bumpiness", 0.0))
-    safety = float(data.get("safety_score", 0.0))
-
-    if use_threshold and accident > 0.9:
-        return very_large_cost
-
-    if use_nonlinear:
-        cost = (
-            w["w_distance"] * length
-            + w["w_accident"] * (accident ** 2)
-            + w["w_traffic"] * (traffic ** 2)
-            + w["w_bump"] * bumpiness
-            - w["w_safety"] * safety
-        )
-    else:
-        cost = (
-            w["w_distance"] * length
-            + w["w_accident"] * accident
-            + w["w_traffic"] * traffic
-            + w["w_bump"] * bumpiness
-            - w["w_safety"] * safety
-        )
-
-    # Safety: ensure non-negative, avoid zero
-    return max(cost, SMALL_COST_FLOOR)
+    aggregate_edge_features_to_nodes(G)
 
 
-def apply_cost(
-    G: nx.MultiDiGraph,
-    weights: Optional[Dict[str, float]] = None,
-    *,
-    user_profile: str = "balanced",
-    use_nonlinear: bool = USE_NONLINEAR,
-    use_threshold: bool = USE_THRESHOLD,
-    use_time: bool = USE_TIME,
-    time_of_day: Optional[str] = None,
-    print_config: bool = False,
-) -> None:
-    """Attach `custom_cost` to edges.
+# ---------------------------------------------------------------------------
+# Node-level feature aggregation (for heuristics)
+# ---------------------------------------------------------------------------
+FEATURE_KEYS = ("traffic_level", "accident_risk", "bumpiness", "safety_score")
 
-    Defaults preserve legacy linear behaviour when only `weights` is supplied.
-    """
 
-    if print_config:
-        print("[Cost Model]")
-        print(f"Nonlinear: {use_nonlinear}")
-        print(f"Threshold: {use_threshold}")
-        print(f"Profile: {user_profile}")
-        print(f"Time: {time_of_day if use_time else 'disabled'}")
+def _iter_edge_features(datas: Iterable[Dict[str, Any]], key: str) -> Iterable[float]:
+    for d in datas:
+        val = d.get(key)
+        if val is not None:
+            try:
+                yield float(val)
+            except (TypeError, ValueError):
+                continue
 
-    resolved_weights = _resolve_weights(weights, user_profile)
 
-    for _, _, _, data in G.edges(keys=True, data=True):
-        data["custom_cost"] = edge_cost(
-            data,
-            resolved_weights,
-            user_profile=user_profile,
-            use_nonlinear=use_nonlinear,
-            use_threshold=use_threshold,
-            time_of_day=time_of_day,
-            use_time=use_time,
-        )
+def aggregate_edge_features_to_nodes(G: nx.MultiDiGraph) -> None:
+    """Store mean feature values on each node for heuristic consumption."""
+
+    for n in G.nodes:
+        incident_edges = []
+        incident_edges.extend(data for _, _, data in G.in_edges(n, data=True))
+        incident_edges.extend(data for _, _, data in G.out_edges(n, data=True))
+
+        if not incident_edges:
+            # No incident edges: default to 0.0 for all features
+            for key in FEATURE_KEYS:
+                G.nodes[n][key] = 0.0
+            continue
+
+        for key in FEATURE_KEYS:
+            vals = list(_iter_edge_features(incident_edges, key))
+            mean_val = sum(vals) / len(vals) if vals else 0.0
+            # Clamp to [0,1] to keep heuristic stable
+            G.nodes[n][key] = max(0.0, min(1.0, mean_val))
+
+
+__all__ = [
+    "assign_synthetic_features",
+    "apply_cost",
+    "compute_edge_distance",
+    "aggregate_edge_features_to_nodes",
+    "FEATURE_KEYS",
+]
+

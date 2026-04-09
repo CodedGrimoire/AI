@@ -1,20 +1,20 @@
 """
-Classic search algorithms on an OSMnx road graph with a custom edge cost.
+Classic search algorithms on an OSMnx road graph.
 
 Prereqs (already in your setup):
 - G is a NetworkX/OSMnx MultiDiGraph
-- Each edge has data['custom_cost'] (float)
-- A Euclidean heuristic function is available (heuristic implemented below)
+- Each edge has data['custom_cost'] (float) which is now *distance-only*
+- A heuristic function is available (see routing.heuristics)
 
-This module implements from-scratch versions of:
-- Dijkstra / Uniform Cost Search
-- Greedy Best-First Search
-- A* Search
-- Weighted A* Search
+Algorithms implemented from scratch:
+- Dijkstra / Uniform Cost Search (uses g only)
+- Greedy Best-First Search (uses h only)
+- A* Search (g + h)
+- Weighted A* Search (g + w*h)
 
 All algorithms use heapq, avoid NetworkX shortest_path helpers, and return:
 - path (list of nodes)
-- total path cost (g-cost)
+- total path cost (g-cost; equals traveled distance)
 - nodes expanded
 - execution time (seconds)
 
@@ -53,12 +53,12 @@ def reconstruct_path(parents: Dict[Hashable, Hashable], goal: Hashable) -> List[
 
 
 def edge_step_cost(data: Dict[str, Any]) -> float:
-    """Read the custom edge cost with a safe default."""
+    """Read the distance-only edge cost with a safe default."""
     return float(data.get("custom_cost", 1.0))
 
 
 def compute_path_cost(G: nx.MultiDiGraph, path: List[Hashable]) -> float:
-    """Compute total cost along a path using the minimum custom_cost over parallel edges."""
+    """Total traveled distance along a path (min over parallel edges)."""
     if len(path) < 2:
         return 0.0
     total = 0.0

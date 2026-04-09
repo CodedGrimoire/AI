@@ -2,10 +2,11 @@
 
 Steps:
 1) Generate graph
-2) Assign synthetic features and custom costs
-3) Pick start/goal
-4) Run Dijkstra, Greedy, A*, Weighted A*
-5) Print comparison table
+2) Assign synthetic features (kept for analysis)
+3) Attach distance-only edge costs
+4) Pick start/goal
+5) Run Dijkstra, Greedy, A*, Weighted A*
+6) Print comparison table and save plots
 """
 
 from __future__ import annotations
@@ -22,7 +23,14 @@ import matplotlib.pyplot as plt
 
 from routing.data.graph_builder import generate_graph
 from routing.data.features_costs import assign_synthetic_features, apply_cost
-from routing.heuristics.spatial import euclidean_heuristic
+from routing.heuristics.spatial import (
+    euclidean_heuristic,
+    exponential_feature_heuristic,
+    HEURISTIC_ALPHA,
+    HEURISTIC_BETA,
+    HEURISTIC_GAMMA,
+    HEURISTIC_LAMBDA,
+)
 from routing.viz.plotting import plot_all_routes, plot_single_route
 from routing.algorithms.search import (
     dijkstra_search,
@@ -32,14 +40,6 @@ from routing.algorithms.search import (
     compute_path_cost,
 )
 
-
-DEFAULT_WEIGHTS = {
-    "w_distance": 1.0,
-    "w_accident": 35.0,
-    "w_traffic": 20.0,
-    "w_bump": 12.0,
-    "w_safety": 15.0,
-}
 
 OUTPUT_DIR = Path("images")
 OUTPUT_DIR.mkdir(exist_ok=True)
@@ -61,22 +61,20 @@ def choose_start_goal(G: nx.MultiDiGraph):
 
 
 def run_all(G: nx.MultiDiGraph, start, goal):
-    h_fn = lambda n: euclidean_heuristic(G, n, goal, scale=1.0)
+    # Exponential heuristic using node-aggregated features
+    h_fn = exponential_feature_heuristic(G, goal)
 
     runs = [
         ("Dijkstra", None, None, lambda: dijkstra_search(G, start, goal, heuristic=lambda n: 0.0)),
         ("Greedy", None, None, lambda: greedy_best_first_search(G, start, goal, h_fn)),
     ]
 
-    # A* with different heuristic scales
-    for k in [0.5, 1.0, 1.5]:
-        h_k = lambda n, k=k: euclidean_heuristic(G, n, goal, scale=k)
-        runs.append(("A*", k, None, lambda h=h_k: a_star_search(G, start, goal, h)))
+    # A* variants reusing the same exponential heuristic
+    runs.append(("A*", 1.0, None, lambda h=h_fn: a_star_search(G, start, goal, h)))
 
-    # Weighted A* with different weights (k fixed at 1.0)
-    h1 = lambda n: euclidean_heuristic(G, n, goal, scale=1.0)
+    # Weighted A* with different weights using the same h
     for w in [1.0, 1.5, 2.0, 3.0]:
-        runs.append(("WA*", 1.0, w, lambda w=w: weighted_a_star_search(G, start, goal, h1, w=w)))
+        runs.append(("WA*", 1.0, w, lambda w=w: weighted_a_star_search(G, start, goal, h_fn, w=w)))
 
     results = []
     for name, k, w, fn in runs:
@@ -121,71 +119,6 @@ def plot_cost_vs_expansion(results, filename: str | Path | None = None):
     plt.close(fig)
 
 
-def _extract_baselines(results):
-    """Return ordered dict for key algorithms used in comparisons."""
-    order = [
-        ("Dijkstra", None, None),
-        ("Greedy", None, None),
-        ("A*", 1.0, None),
-        ("WA*", None, 1.5),
-    ]
-    out = {}
-    for alg, k_req, w_req in order:
-        for name, k, w, cost, expd, _, _, _ in results:
-            if name != alg:
-                continue
-            if k_req is not None and k != k_req:
-                continue
-            if w_req is not None and w != w_req:
-                continue
-            out["Weighted A*" if alg == "WA*" else alg] = (cost, expd)
-            break
-    return out
-
-
-def plot_linear_vs_extended(results_linear, results_extended, filename: str | Path | None = None):
-    lin = _extract_baselines(results_linear)
-    ext = _extract_baselines(results_extended)
-
-    algorithms = ["Dijkstra", "Greedy", "A*", "Weighted A*"]
-    lin_costs = [lin.get(a, (0, 0))[0] for a in algorithms]
-    ext_costs = [ext.get(a, (0, 0))[0] for a in algorithms]
-    lin_exp = [lin.get(a, (0, 0))[1] for a in algorithms]
-    ext_exp = [ext.get(a, (0, 0))[1] for a in algorithms]
-
-    x = range(len(algorithms))
-    width = 0.35
-
-    fig, axes = plt.subplots(1, 2, figsize=(6, 4), sharey=False)
-
-    bars_lin_cost = axes[0].bar([i - width / 2 for i in x], lin_costs, width, label="Linear", color="#4b8bbe")
-    bars_ext_cost = axes[0].bar([i + width / 2 for i in x], ext_costs, width, label="Extended", color="#ff7f0e")
-    axes[0].set_title("Path Cost")
-    axes[0].set_xticks(list(x))
-    axes[0].set_xticklabels(algorithms, rotation=20, ha="right")
-    axes[0].grid(True, linestyle="--", alpha=0.3)
-
-    # If one model triggers threshold (very large), switch to log to keep bars visible
-    max_cost = max(lin_costs + ext_costs)
-    mean_cost = sum(lin_costs + ext_costs) / len(lin_costs + ext_costs)
-    if max_cost > 5 * mean_cost:
-        axes[0].set_yscale("log")
-
-    axes[1].bar([i - width / 2 for i in x], lin_exp, width, label="Linear", color="#4b8bbe")
-    axes[1].bar([i + width / 2 for i in x], ext_exp, width, label="Extended", color="#ff7f0e")
-    axes[1].set_title("Nodes Expanded")
-    axes[1].set_xticks(list(x))
-    axes[1].set_xticklabels(algorithms, rotation=20, ha="right")
-    axes[1].grid(True, linestyle="--", alpha=0.3)
-
-    fig.suptitle("Linear vs Extended Cost Model Comparison", fontsize=12, y=0.98)
-    fig.legend(loc="upper center", ncol=2, bbox_to_anchor=(0.5, 1.08))
-    plt.tight_layout(rect=[0, 0, 1, 0.94])
-    out_path = Path(filename) if filename is not None else OUTPUT_DIR / "linear_vs_extended.png"
-    plt.savefig(out_path, dpi=150)
-    plt.close(fig)
-
-
 def plot_weight_sweeps(results, filename: str | Path | None = None):
     df = pd.DataFrame(results, columns=["alg", "k", "w", "cost", "expanded", "time", "plen", "path"])
     wa = df[df.alg == "WA*"]
@@ -216,29 +149,20 @@ def main():
 
     assign_synthetic_features(G)
 
-    # --- Linear model run (legacy default) ---
-    apply_cost(G, DEFAULT_WEIGHTS, use_nonlinear=False, use_threshold=False)
+    # Distance-only cost assignment
+    apply_cost(G)
     start, goal, G_conn = choose_start_goal(G)
-    results_linear = run_all(G_conn, start, goal)
-    print_table(results_linear)
-    plot_weight_sweeps(results_linear)
-
-    # Scatter efficiency vs quality
-    plot_cost_vs_expansion(results_linear)
-
-    # --- Extended model run ---
-    apply_cost(G_conn, DEFAULT_WEIGHTS, use_nonlinear=True, use_threshold=True)
-    results_extended = run_all(G_conn, start, goal)
-
-    # Comparison chart between linear and extended
-    plot_linear_vs_extended(results_linear, results_extended)
+    results = run_all(G_conn, start, goal)
+    print_table(results)
+    plot_weight_sweeps(results)
+    plot_cost_vs_expansion(results)
 
     # Route overlays and per-route PNGs (baseline variants)
     base_paths = {
-        "Dijkstra": next(p for p in results_linear if p[0] == "Dijkstra")[7],
-        "Greedy": next(p for p in results_linear if p[0] == "Greedy")[7],
-        "A*": next(p for p in results_linear if p[0] == "A*" and p[1] == 1.0)[7],
-        "Weighted A*": next(p for p in results_linear if p[0] == "WA*" and p[2] == 1.5)[7],
+        "Dijkstra": next(p for p in results if p[0] == "Dijkstra")[7],
+        "Greedy": next(p for p in results if p[0] == "Greedy")[7],
+        "A*": next(p for p in results if p[0] == "A*" and p[1] == 1.0)[7],
+        "Weighted A*": next(p for p in results if p[0] == "WA*" and p[2] == 1.5)[7],
     }
     plot_all_routes(G_conn, base_paths, start, goal)
     plot_single_route(G_conn, base_paths["Dijkstra"], "Dijkstra", color="blue", filename=OUTPUT_DIR / "dijkstra.png")
@@ -246,8 +170,8 @@ def main():
     plot_single_route(G_conn, base_paths["A*"], "A*", color="green", filename=OUTPUT_DIR / "astar.png")
     plot_single_route(G_conn, base_paths["Weighted A*"], "Weighted A*", color="red", filename=OUTPUT_DIR / "weighted_astar.png")
 
-    # Charts: expanded, time, cost vs Dijkstra baseline (using base variants from linear run)
-    df_lin = pd.DataFrame(results_linear, columns=["alg", "k", "w", "cost", "expanded", "time", "plen", "path"])
+    # Charts: expanded, time, cost vs Dijkstra baseline (using base variants)
+    df_lin = pd.DataFrame(results, columns=["alg", "k", "w", "cost", "expanded", "time", "plen", "path"])
     base_cost = df_lin[df_lin.alg == "Dijkstra"].iloc[0]["cost"]
 
     # Select base variants for bars: Dijkstra, Greedy, A* (k=1), WA* (w=1.5)
@@ -289,3 +213,4 @@ def main():
 
 if __name__ == "__main__":
     main()
+

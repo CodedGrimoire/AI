@@ -21,22 +21,13 @@ import networkx as nx
 
 from routing.data.graph_builder import generate_graph
 from routing.data.features_costs import assign_synthetic_features, apply_cost
-from routing.heuristics.spatial import euclidean_heuristic
+from routing.heuristics.spatial import euclidean_heuristic, exponential_feature_heuristic
 from routing.algorithms.search import (
     dijkstra_search,
     weighted_a_star_search,
     compute_path_cost,
 )
 
-
-# Default cost weights from run_experiments.py
-DEFAULT_WEIGHTS = {
-    "w_distance": 1.0,
-    "w_accident": 35.0,
-    "w_traffic": 20.0,
-    "w_bump": 12.0,
-    "w_safety": 15.0,
-}
 
 OUTPUT_DIR = Path("images")
 OUTPUT_DIR.mkdir(exist_ok=True)
@@ -68,7 +59,7 @@ def run_sweep(weights: List[float]) -> None:
 
     G = generate_graph(center, min_nodes=100, max_nodes=140)
     assign_synthetic_features(G)
-    apply_cost(G, DEFAULT_WEIGHTS)
+    apply_cost(G)
 
     start, goal, G = choose_start_goal(G)
 
@@ -76,7 +67,7 @@ def run_sweep(weights: List[float]) -> None:
     d_path, d_g, d_exp, d_time = dijkstra_search(G, start, goal, heuristic=lambda n: 0.0)
     d_cost = compute_path_cost(G, d_path)
 
-    h_fn = lambda n: euclidean_heuristic(G, n, goal, scale=1.0)
+    h_fn = exponential_feature_heuristic(G, goal)
 
     results: List[RunResult] = []
     for w in weights:

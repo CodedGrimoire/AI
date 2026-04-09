@@ -25,9 +25,9 @@ import networkx as nx
 
 from routing.data.graph_builder import generate_graph
 from routing.data.features_costs import assign_synthetic_features, apply_cost
-from routing.heuristics.spatial import euclidean_heuristic
+from routing.heuristics.spatial import euclidean_heuristic, exponential_feature_heuristic
 from routing.algorithms.search import dijkstra_search
-from routing.experiments.run import DEFAULT_WEIGHTS, choose_start_goal
+from routing.experiments.run import choose_start_goal
 
 
 def edge_min_cost(G: nx.MultiDiGraph, u: Hashable, v: Hashable) -> float:
@@ -39,7 +39,8 @@ def edge_min_cost(G: nx.MultiDiGraph, u: Hashable, v: Hashable) -> float:
 
 
 def compute_heuristics(G: nx.MultiDiGraph, goal: Hashable) -> Dict[Hashable, float]:
-    return {n: euclidean_heuristic(G, n, goal, scale=1.0) for n in G.nodes}
+    h_fn = exponential_feature_heuristic(G, goal)
+    return {n: h_fn(n) for n in G.nodes}
 
 
 def check_consistency(G: nx.MultiDiGraph, h: Dict[Hashable, float]):
@@ -76,7 +77,7 @@ def build_graph():
     center = (23.746, 90.376)  # Dhaka example
     G = generate_graph(center, min_nodes=100, max_nodes=140)
     assign_synthetic_features(G)
-    apply_cost(G, DEFAULT_WEIGHTS)
+    apply_cost(G)
     start, goal, G_conn = choose_start_goal(G)
     return G_conn, goal
 

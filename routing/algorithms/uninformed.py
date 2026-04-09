@@ -30,11 +30,13 @@ def breadth_first_search(G: nx.MultiDiGraph, start: Hashable, goal: Hashable) ->
     visited: Set[Hashable] = {start}
     expanded = 0
     max_frontier = 1
+    expanded_nodes: List[Hashable] = []
 
     while frontier:
         max_frontier = max(max_frontier, len(frontier))
         u = frontier.popleft()
         expanded += 1
+        expanded_nodes.append(u)
         if u == goal:
             path = reconstruct_path(parents, goal)
             cost = compute_path_cost(G, path)
@@ -48,6 +50,9 @@ def breadth_first_search(G: nx.MultiDiGraph, start: Hashable, goal: Hashable) ->
                 max_frontier_size=max_frontier,
                 path_length=len(path),
                 visited_count=len(visited),
+                start_node=start,
+                goal_node=goal,
+                expanded_nodes=expanded_nodes,
             )
         for _, v, _, data in G.out_edges(u, keys=True, data=True):
             if v not in visited:
@@ -55,7 +60,20 @@ def breadth_first_search(G: nx.MultiDiGraph, start: Hashable, goal: Hashable) ->
                 parents[v] = u
                 frontier.append(v)
 
-    return SearchResult("Breadth-first search (BFS)", [], False, float("inf"), expanded, perf_counter() - t0, max_frontier, 0, len(visited))
+    return SearchResult(
+        "Breadth-first search (BFS)",
+        [],
+        False,
+        float("inf"),
+        expanded,
+        perf_counter() - t0,
+        max_frontier,
+        0,
+        len(visited),
+        start_node=start,
+        goal_node=goal,
+        expanded_nodes=expanded_nodes,
+    )
 
 
 def uniform_cost_search(G: nx.MultiDiGraph, start: Hashable, goal: Hashable) -> SearchResult:
@@ -66,11 +84,13 @@ def uniform_cost_search(G: nx.MultiDiGraph, start: Hashable, goal: Hashable) -> 
     expanded = 0
     max_frontier = 1
     visited = 0
+    expanded_nodes: List[Hashable] = []
 
     while frontier:
         max_frontier = max(max_frontier, len(frontier))
         g_u, u = heapq.heappop(frontier)
         visited += 1
+        expanded_nodes.append(u)
         if u == goal:
             path = reconstruct_path(parents, goal)
             cost = compute_path_cost(G, path)
@@ -84,6 +104,9 @@ def uniform_cost_search(G: nx.MultiDiGraph, start: Hashable, goal: Hashable) -> 
                 max_frontier_size=max_frontier,
                 path_length=len(path),
                 visited_count=visited,
+                start_node=start,
+                goal_node=goal,
+                expanded_nodes=expanded_nodes,
             )
 
         expanded += 1
@@ -96,7 +119,20 @@ def uniform_cost_search(G: nx.MultiDiGraph, start: Hashable, goal: Hashable) -> 
                 parents[v] = u
                 heapq.heappush(frontier, (g_v, v))
 
-    return SearchResult("Uniform cost search", [], False, float("inf"), expanded, perf_counter() - t0, max_frontier, 0, visited)
+    return SearchResult(
+        "Uniform cost search",
+        [],
+        False,
+        float("inf"),
+        expanded,
+        perf_counter() - t0,
+        max_frontier,
+        0,
+        visited,
+        start_node=start,
+        goal_node=goal,
+        expanded_nodes=expanded_nodes,
+    )
 
 
 def depth_first_search(G: nx.MultiDiGraph, start: Hashable, goal: Hashable) -> SearchResult:
@@ -106,11 +142,13 @@ def depth_first_search(G: nx.MultiDiGraph, start: Hashable, goal: Hashable) -> S
     visited: Set[Hashable] = {start}
     expanded = 0
     max_frontier = 1
+    expanded_nodes: List[Hashable] = []
 
     while stack:
         max_frontier = max(max_frontier, len(stack))
         u = stack.pop()
         expanded += 1
+        expanded_nodes.append(u)
         if u == goal:
             path = reconstruct_path(parents, goal)
             cost = compute_path_cost(G, path)
@@ -124,6 +162,9 @@ def depth_first_search(G: nx.MultiDiGraph, start: Hashable, goal: Hashable) -> S
                 max_frontier_size=max_frontier,
                 path_length=len(path),
                 visited_count=len(visited),
+                start_node=start,
+                goal_node=goal,
+                expanded_nodes=expanded_nodes,
             )
 
         for _, v, _, data in reversed(list(G.out_edges(u, keys=True, data=True))):
@@ -132,7 +173,20 @@ def depth_first_search(G: nx.MultiDiGraph, start: Hashable, goal: Hashable) -> S
                 parents[v] = u
                 stack.append(v)
 
-    return SearchResult("Depth-first search (DFS)", [], False, float("inf"), expanded, perf_counter() - t0, max_frontier, 0, len(visited))
+    return SearchResult(
+        "Depth-first search (DFS)",
+        [],
+        False,
+        float("inf"),
+        expanded,
+        perf_counter() - t0,
+        max_frontier,
+        0,
+        len(visited),
+        start_node=start,
+        goal_node=goal,
+        expanded_nodes=expanded_nodes,
+    )
 
 
 def depth_limited_search(G: nx.MultiDiGraph, start: Hashable, goal: Hashable, limit: int) -> SearchResult:
@@ -141,10 +195,12 @@ def depth_limited_search(G: nx.MultiDiGraph, start: Hashable, goal: Hashable, li
     max_frontier = 0
     cutoff_occurred = False
     visited: Set[Hashable] = set()
+    expanded_nodes: List[Hashable] = []
 
     def recursive_dls(node: Hashable, depth: int, parents: Dict[Hashable, Optional[Hashable]]) -> Optional[List[Hashable]]:
         nonlocal expanded, max_frontier, cutoff_occurred
         visited.add(node)
+        expanded_nodes.append(node)
         max_frontier = max(max_frontier, depth + 1)
         if node == goal:
             return reconstruct_path(parents, node)
@@ -175,6 +231,9 @@ def depth_limited_search(G: nx.MultiDiGraph, start: Hashable, goal: Hashable, li
         visited_count=len(visited),
         depth_reached=limit,
         cutoff_occurred=cutoff_occurred,
+        start_node=start,
+        goal_node=goal,
+        expanded_nodes=expanded_nodes,
     )
 
 
@@ -183,12 +242,15 @@ def iterative_deepening_search(G: nx.MultiDiGraph, start: Hashable, goal: Hashab
     total_expanded = 0
     max_frontier = 0
     visited_total = 0
+    expanded_nodes: List[Hashable] = []
 
     for limit in range(max_depth + 1):
         res = depth_limited_search(G, start, goal, limit)
         total_expanded += res.nodes_expanded
         max_frontier = max(max_frontier, res.max_frontier_size)
         visited_total += res.visited_count
+        if res.expanded_nodes:
+            expanded_nodes.extend(res.expanded_nodes)
         if res.path_found:
             res.algorithm_name = "Iterative Deepening Search"
             res.nodes_expanded = total_expanded
@@ -196,6 +258,9 @@ def iterative_deepening_search(G: nx.MultiDiGraph, start: Hashable, goal: Hashab
             res.max_frontier_size = max_frontier
             res.visited_count = visited_total
             res.depth_reached = limit
+            res.start_node = start
+            res.goal_node = goal
+            res.expanded_nodes = expanded_nodes
             return res
         if not res.cutoff_occurred:
             break
@@ -212,6 +277,9 @@ def iterative_deepening_search(G: nx.MultiDiGraph, start: Hashable, goal: Hashab
         visited_count=visited_total,
         depth_reached=max_depth,
         cutoff_occurred=True,
+        start_node=start,
+        goal_node=goal,
+        expanded_nodes=expanded_nodes,
     )
 
 
@@ -228,6 +296,9 @@ def bidirectional_search(G: nx.MultiDiGraph, start: Hashable, goal: Hashable) ->
             max_frontier_size=1,
             path_length=1,
             visited_count=1,
+            start_node=start,
+            goal_node=goal,
+            expanded_nodes=[start],
         )
 
     frontier_f = deque([start])
@@ -238,6 +309,7 @@ def bidirectional_search(G: nx.MultiDiGraph, start: Hashable, goal: Hashable) ->
     visited_b: Set[Hashable] = {goal}
     expanded = 0
     max_frontier = 2
+    expanded_nodes: List[Hashable] = []
 
     def _merge(meet: Hashable) -> List[Hashable]:
         path_f = reconstruct_path(parents_f, meet)
@@ -251,6 +323,7 @@ def bidirectional_search(G: nx.MultiDiGraph, start: Hashable, goal: Hashable) ->
         # Expand one step forward
         u = frontier_f.popleft()
         expanded += 1
+        expanded_nodes.append(u)
         for _, v, _, _ in G.out_edges(u, keys=True, data=True):
             if v not in visited_f:
                 visited_f.add(v)
@@ -269,12 +342,16 @@ def bidirectional_search(G: nx.MultiDiGraph, start: Hashable, goal: Hashable) ->
                         path_length=len(path),
                         visited_count=len(visited_f) + len(visited_b),
                         meeting_node=v,
+                        start_node=start,
+                        goal_node=goal,
+                        expanded_nodes=expanded_nodes,
                     )
                 frontier_f.append(v)
 
         # Expand one step backward (reverse direction; for directed graphs we consider in_edges)
         u = frontier_b.popleft()
         expanded += 1
+        expanded_nodes.append(u)
         for v, _, _ in G.in_edges(u, keys=True):
             if v not in visited_b:
                 visited_b.add(v)
@@ -293,7 +370,23 @@ def bidirectional_search(G: nx.MultiDiGraph, start: Hashable, goal: Hashable) ->
                         path_length=len(path),
                         visited_count=len(visited_f) + len(visited_b),
                         meeting_node=v,
+                        start_node=start,
+                        goal_node=goal,
+                        expanded_nodes=expanded_nodes,
                     )
                 frontier_b.append(v)
 
-    return SearchResult("Bidirectional Search", [], False, float("inf"), expanded, perf_counter() - t0, max_frontier, 0, len(visited_f) + len(visited_b))
+    return SearchResult(
+        "Bidirectional Search",
+        [],
+        False,
+        float("inf"),
+        expanded,
+        perf_counter() - t0,
+        max_frontier,
+        0,
+        len(visited_f) + len(visited_b),
+        start_node=start,
+        goal_node=goal,
+        expanded_nodes=expanded_nodes,
+    )

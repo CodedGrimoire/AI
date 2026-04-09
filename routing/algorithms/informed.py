@@ -40,11 +40,13 @@ def _run_best_first(
     expanded = 0
     max_frontier = 1
     visited_count = 0
+    expanded_nodes: List[Hashable] = []
 
     while frontier:
         max_frontier = max(max_frontier, len(frontier))
         f_u, u, g_u = heapq.heappop(frontier)
         visited_count += 1
+        expanded_nodes.append(u)
 
         if u == goal:
             path = reconstruct_path(parents, goal)
@@ -59,7 +61,10 @@ def _run_best_first(
                 max_frontier_size=max_frontier,
                 path_length=len(path),
                 visited_count=visited_count,
+                start_node=start,
+                goal_node=goal,
                 weight=weight,
+                expanded_nodes=expanded_nodes,
             )
 
         expanded += 1
@@ -83,7 +88,10 @@ def _run_best_first(
         max_frontier_size=max_frontier,
         path_length=0,
         visited_count=visited_count,
+        start_node=start,
+        goal_node=goal,
         weight=weight,
+        expanded_nodes=expanded_nodes,
     )
 
 

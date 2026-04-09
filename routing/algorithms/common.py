@@ -20,10 +20,13 @@ class SearchResult:
     max_frontier_size: int
     path_length: int
     visited_count: int
+    start_node: Optional[Hashable] = None
+    goal_node: Optional[Hashable] = None
     depth_reached: Optional[int] = None
     cutoff_occurred: Optional[bool] = None
     meeting_node: Optional[Hashable] = None
     weight: Optional[float] = None
+    expanded_nodes: Optional[List[Hashable]] = None
 
 
 def edge_step_cost(data: Dict[str, Any]) -> float:
@@ -63,4 +66,3 @@ def timed(fn):
         return out, time.time() - start
 
     return wrapper
-

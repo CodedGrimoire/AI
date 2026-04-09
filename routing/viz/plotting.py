@@ -72,7 +72,7 @@ def plot_single_route(G: nx.MultiDiGraph, path, name: str, color: str | None, fi
     plt.close(fig)
 
 
-def plot_all_routes(G: nx.MultiDiGraph, paths_dict: dict, start, goal):
+def plot_all_routes(G: nx.MultiDiGraph, paths_dict: dict, start, goal, filename: Path | str | None = None):
     """Overlay all algorithm paths on one plot with start/goal markers."""
     pos = {n: (G.nodes[n]["x"], G.nodes[n]["y"]) for n in G.nodes}
 
@@ -104,7 +104,41 @@ def plot_all_routes(G: nx.MultiDiGraph, paths_dict: dict, start, goal):
     ax.legend(loc="best", frameon=False)
 
     plt.tight_layout()
-    plt.savefig(OUTPUT_DIR / "comparison_routes.png", dpi=200, bbox_inches="tight")
+    out_path = Path(filename) if filename is not None else OUTPUT_DIR / "comparison_routes.png"
+    plt.savefig(out_path, dpi=200, bbox_inches="tight")
+    plt.close(fig)
+
+
+def plot_explored_nodes(G: nx.MultiDiGraph, expanded_nodes, path, name: str, filename: str | Path | None = None):
+    """Visualize explored nodes and final path."""
+    pos = {n: (G.nodes[n]["x"], G.nodes[n]["y"]) for n in G.nodes}
+
+    fig, ax = plt.subplots(figsize=(5, 5))
+    for u, v in G.edges():
+        x0, y0 = pos[u]
+        x1, y1 = pos[v]
+        ax.plot([x0, x1], [y0, y1], color="#dddddd", linewidth=0.8, zorder=1)
+
+    if expanded_nodes:
+        xs = [pos[n][0] for n in expanded_nodes if n in pos]
+        ys = [pos[n][1] for n in expanded_nodes if n in pos]
+        ax.scatter(xs, ys, c="#999", s=10, alpha=0.6, label="Expanded", zorder=2)
+
+    if path:
+        path_x = [pos[n][0] for n in path]
+        path_y = [pos[n][1] for n in path]
+        ax.plot(path_x, path_y, color=COLORS.get(name, "blue"), linewidth=2.5, zorder=3, label="Path")
+        ax.scatter(path_x[0], path_y[0], c="green", s=40, zorder=4, label="Start")
+        ax.scatter(path_x[-1], path_y[-1], c="red", s=40, zorder=4, label="Goal")
+
+    ax.set_title(f"Explored nodes: {name}")
+    ax.set_aspect("equal")
+    ax.axis("off")
+    ax.legend(loc="best", frameon=False)
+
+    out_path = Path(filename) if filename is not None else OUTPUT_DIR / f"explored_{name.replace(' ', '_').replace('*','star')}.png"
+    plt.tight_layout()
+    plt.savefig(out_path, dpi=180, bbox_inches="tight")
     plt.close(fig)
 
 

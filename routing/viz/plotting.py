@@ -23,7 +23,6 @@ COLORS = {
     "Greedy best-first search": "#ff7f0e",
     "A* search": "#2ca02c",
 }
-}
 
 OUTPUT_DIR = Path("images")
 OUTPUT_DIR.mkdir(exist_ok=True)

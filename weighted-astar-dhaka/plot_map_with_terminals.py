@@ -13,16 +13,37 @@ import matplotlib
 
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt
+import networkx as nx
 import osmnx as ox
 
-from run_weighted_astar import generate_graph, choose_endpoints
+from run_weighted_astar import generate_graph, euclidean
+
+
+def choose_start_goal(G: nx.MultiDiGraph):
+    """Use the same farthest-pair selection as the main codebase.
+
+    - If graph is not weakly connected, keep the largest weakly connected component
+    - Pick an initial node, then choose the farthest node as goal
+    - Choose the farthest node from that goal as the start
+    Returns (start, goal, possibly-trimmed graph)
+    """
+
+    if not nx.is_weakly_connected(G):
+        largest_cc = max(nx.weakly_connected_components(G), key=len)
+        G = G.subgraph(largest_cc).copy()
+
+    nodes = list(G.nodes)
+    start = nodes[0]
+    goal = max(nodes, key=lambda n: euclidean(G, start, n))
+    start = max(nodes, key=lambda n: euclidean(G, n, goal))
+    return start, goal, G
 
 OUTPUT_PATH = Path(__file__).parent / "images" / "map_with_terminals.png"
 
 
 def main():
     G = generate_graph()
-    start, goal = choose_endpoints(G)
+    start, goal, G = choose_start_goal(G)
 
     print(f"[info] Graph: {G.graph.get('graph_label')} | nodes={len(G)} | edges={len(G.edges())}")
     print(f"[info] Start={start} | Goal={goal}")
@@ -66,3 +87,23 @@ def main():
 
 if __name__ == "__main__":
     main()
+
+
+def choose_start_goal(G: nx.MultiDiGraph):
+    """Use the same farthest-pair selection as the main codebase.
+
+    - If graph is not weakly connected, keep the largest weakly connected component
+    - Pick an initial node, then choose the farthest node as goal
+    - Choose the farthest node from that goal as the start
+    Returns (start, goal, possibly-trimmed graph)
+    """
+
+    if not nx.is_weakly_connected(G):
+        largest_cc = max(nx.weakly_connected_components(G), key=len)
+        G = G.subgraph(largest_cc).copy()
+
+    nodes = list(G.nodes)
+    start = nodes[0]
+    goal = max(nodes, key=lambda n: euclidean(G, start, n))
+    start = max(nodes, key=lambda n: euclidean(G, n, goal))
+    return start, goal, G

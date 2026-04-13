@@ -26,6 +26,7 @@ except ModuleNotFoundError:
     plt = None
 
 from routing.algorithms import (
+    SearchResult,
     breadth_first_search,
     depth_limited_search,
     iterative_deepening_search,
@@ -92,6 +93,30 @@ def plot_depth_sweep(df: pd.DataFrame, out_png: Path) -> None:
     plt.close()
 
 
+def plot_ids_summary(ids: SearchResult, bfs: SearchResult, out_png: Path) -> None:
+    """Plot a compact IDS vs BFS comparison for quick validation."""
+    if plt is None:
+        return
+
+    labels = ["path_length", "nodes_expanded", "execution_time_s", "cost"]
+    ids_vals = [ids.path_length, ids.nodes_expanded, ids.execution_time, ids.total_path_cost]
+    bfs_vals = [bfs.path_length, bfs.nodes_expanded, bfs.execution_time, bfs.total_path_cost]
+
+    x = list(range(len(labels)))
+    width = 0.38
+
+    plt.figure(figsize=(8, 4))
+    plt.bar([i - width / 2 for i in x], bfs_vals, width=width, label="BFS baseline")
+    plt.bar([i + width / 2 for i in x], ids_vals, width=width, label="IDS")
+    plt.xticks(x, labels)
+    plt.title("IDS Summary (vs BFS baseline)")
+    plt.grid(True, axis="y", linestyle="--", alpha=0.35)
+    plt.legend()
+    plt.tight_layout()
+    plt.savefig(out_png, dpi=170)
+    plt.close()
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(description="Small graph DLS/IDS runner")
     parser.add_argument("--rows", type=int, default=6, help="Grid rows")
@@ -148,6 +173,8 @@ def main() -> None:
     )
     ids_csv = paths["csv"] / "ids_summary.csv"
     ids_df.to_csv(ids_csv, index=False)
+    ids_plot = paths["plots"] / "ids_summary.png"
+    plot_ids_summary(ids, bfs, ids_plot)
 
     print(f"[result] DLS sweep saved: {dls_csv}")
     print(f"[result] IDS summary saved: {ids_csv}")
@@ -155,6 +182,7 @@ def main() -> None:
         print("[warn] matplotlib not installed; skipped plot generation")
     else:
         print(f"[result] Plot saved: {paths['plots'] / 'dls_depth_sweep.png'}")
+        print(f"[result] Plot saved: {ids_plot}")
 
 
 if __name__ == "__main__":

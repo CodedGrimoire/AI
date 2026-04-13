@@ -111,6 +111,14 @@ def sample_start_goal_pairs(
     return pairs
 
 
+def resolve_fixed_pair(G: nx.MultiDiGraph, start_node: int, goal_node: int) -> tuple[Hashable, Hashable]:
+    if start_node not in G or goal_node not in G:
+        raise RuntimeError(
+            f"Fixed nodes not found in graph component. start={start_node in G}, goal={goal_node in G}"
+        )
+    return start_node, goal_node
+
+
 def _run_for_pair(
     G: nx.MultiDiGraph,
     pair_id: int,
@@ -238,6 +246,8 @@ def parse_args() -> argparse.Namespace:
     p.add_argument("--min-distance-m", type=float, default=3500.0)
     p.add_argument("--max-distance-m", type=float, default=18000.0)
     p.add_argument("--practical-subgraph-nodes", type=int, default=0, help="Optional manageable subgraph size sampled from whole Dhaka context")
+    p.add_argument("--start-node", type=int, default=None, help="Optional fixed start node id")
+    p.add_argument("--goal-node", type=int, default=None, help="Optional fixed goal node id")
     p.add_argument("--dry-run", action="store_true", help="Parse args and print config without executing")
     return p.parse_args()
 
@@ -268,7 +278,14 @@ def main() -> None:
     # Informed safe-routing objective uses contextual edge costs.
     apply_contextual_cost(G, cost_weights)
 
-    pairs = sample_start_goal_pairs(G, args.pairs, args.seed, args.min_distance_m, args.max_distance_m)
+    if (args.start_node is None) ^ (args.goal_node is None):
+        raise RuntimeError("Provide both --start-node and --goal-node together.")
+
+    if args.start_node is not None and args.goal_node is not None:
+        fixed = resolve_fixed_pair(G, args.start_node, args.goal_node)
+        pairs = [fixed]
+    else:
+        pairs = sample_start_goal_pairs(G, args.pairs, args.seed, args.min_distance_m, args.max_distance_m)
 
     all_rows: list[dict] = []
     representative: list[tuple[int, Hashable, Hashable, dict[str, list]]] = []

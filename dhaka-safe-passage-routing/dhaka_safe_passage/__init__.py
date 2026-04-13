@@ -8,4 +8,5 @@ __all__ = [
     "metrics",
     "visualization",
     "experiment_runner",
+    "heuristic_verification",
 ]

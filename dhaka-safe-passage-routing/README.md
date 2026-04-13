@@ -63,3 +63,37 @@ python -m dhaka_safe_passage.experiment_runner \
 - `outputs/safe_passage_dhaka/summary/experiment_summary.txt`
 - `outputs/safe_passage_dhaka/summary/formulas.txt`
 - `outputs/safe_passage_dhaka/summary/assumptions.json`
+
+## Heuristic Verification (Admissibility + Consistency)
+Run with module:
+```bash
+MPLCONFIGDIR=/tmp/mpl python -m dhaka_safe_passage.heuristic_verification \
+  --sampled-nodes 3000 \
+  --sampled-edges 8000 \
+  --num-goals 5
+```
+
+Or with convenience script:
+```bash
+MPLCONFIGDIR=/tmp/mpl ./run_heuristic_verification.py \
+  --sampled-nodes 3000 \
+  --sampled-edges 8000 \
+  --num-goals 5
+```
+
+Same fixed goal node as your previous experiment:
+```bash
+MPLCONFIGDIR=/tmp/mpl python -m dhaka_safe_passage.heuristic_verification \
+  --goal-node 4594175828 \
+  --sampled-nodes 3000 \
+  --sampled-edges 8000
+```
+
+Heuristic verification outputs:
+- `outputs/heuristic_verification/admissibility_results.csv`
+- `outputs/heuristic_verification/consistency_results.csv`
+- `outputs/heuristic_verification/admissibility_summary_by_goal.csv`
+- `outputs/heuristic_verification/heuristic_verification_report.md`
+- `outputs/heuristic_verification/admissibility_delta_histogram.png`
+- `outputs/heuristic_verification/consistency_residual_histogram.png`
+- `outputs/heuristic_verification/heuristic_violation_rates.png`

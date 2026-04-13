@@ -34,7 +34,7 @@ from routing.algorithms import (
 from routing.experiments.output_paths import build_output_paths
 
 
-def make_small_grid(rows: int = 6, cols: int = 6, spacing: float = 30.0) -> nx.MultiDiGraph:
+def make_small_grid(rows: int = 10, cols: int = 10, spacing: float = 30.0) -> nx.MultiDiGraph:
     """Build a small directed grid graph with coordinate attributes."""
     if rows < 2 or cols < 2:
         raise ValueError("rows and cols must be >= 2")
@@ -51,6 +51,15 @@ def make_small_grid(rows: int = 6, cols: int = 6, spacing: float = 30.0) -> nx.M
         G.add_edge(v, u, length=spacing, custom_cost=spacing)
 
     return G
+
+
+def dims_for_target_nodes(target_nodes: int) -> tuple[int, int]:
+    """Choose near-square grid dimensions for a target node count."""
+    if target_nodes < 4:
+        raise ValueError("target_nodes must be >= 4")
+    rows = max(2, math.isqrt(target_nodes))
+    cols = max(2, math.ceil(target_nodes / rows))
+    return rows, cols
 
 
 def parse_node(raw: Optional[str]) -> Optional[Hashable]:
@@ -187,8 +196,9 @@ def plot_path_on_map(
 
 def main() -> None:
     parser = argparse.ArgumentParser(description="Small graph DLS/IDS runner")
-    parser.add_argument("--rows", type=int, default=6, help="Grid rows")
-    parser.add_argument("--cols", type=int, default=6, help="Grid cols")
+    parser.add_argument("--rows", type=int, default=10, help="Grid rows")
+    parser.add_argument("--cols", type=int, default=10, help="Grid cols")
+    parser.add_argument("--nodes", type=int, default=100, help="Target node count (overrides rows/cols when set)")
     parser.add_argument("--start", type=str, default=None, help="Start node id, e.g. '(0,0)'")
     parser.add_argument("--goal", type=str, default=None, help="Goal node id, e.g. '(5,5)'")
     parser.add_argument("--dls-max", type=int, default=15, help="Max depth limit to sweep")
@@ -197,7 +207,12 @@ def main() -> None:
 
     paths = build_output_paths("small_graph_ids_dls")
 
-    G = make_small_grid(rows=args.rows, cols=args.cols)
+    if args.nodes is not None:
+        rows, cols = dims_for_target_nodes(args.nodes)
+    else:
+        rows, cols = args.rows, args.cols
+
+    G = make_small_grid(rows=rows, cols=cols)
     start, goal = choose_endpoints(G, parse_node(args.start), parse_node(args.goal))
 
     print(f"[info] Graph={G.graph['graph_label']} | nodes={len(G)} edges={len(G.edges())}")

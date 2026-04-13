@@ -117,6 +117,74 @@ def plot_ids_summary(ids: SearchResult, bfs: SearchResult, out_png: Path) -> Non
     plt.close()
 
 
+def plot_map_used(G: nx.MultiDiGraph, start: Hashable, goal: Hashable, out_png: Path) -> None:
+    """Render the graph used for the experiment with start/goal markers."""
+    if plt is None:
+        return
+    pos = {n: (G.nodes[n]["x"], G.nodes[n]["y"]) for n in G.nodes}
+
+    plt.figure(figsize=(7, 7))
+    for u, v, _k, _data in G.edges(keys=True, data=True):
+        x0, y0 = pos[u]
+        x1, y1 = pos[v]
+        plt.plot([x0, x1], [y0, y1], color="#dddddd", linewidth=1.0, zorder=1)
+
+    xs = [xy[0] for xy in pos.values()]
+    ys = [xy[1] for xy in pos.values()]
+    plt.scatter(xs, ys, c="#6c757d", s=18, zorder=2, label="Nodes")
+
+    sx, sy = pos[start]
+    gx, gy = pos[goal]
+    plt.scatter([sx], [sy], c="#2f9e44", s=110, marker="o", edgecolors="black", zorder=3, label="Start")
+    plt.scatter([gx], [gy], c="#d9480f", s=130, marker="*", edgecolors="black", zorder=3, label="Goal")
+
+    plt.title(f"Map Used: {G.graph.get('graph_label', 'Graph')}")
+    plt.axis("equal")
+    plt.axis("off")
+    plt.legend(loc="best", frameon=False)
+    plt.tight_layout()
+    plt.savefig(out_png, dpi=180, bbox_inches="tight")
+    plt.close()
+
+
+def plot_path_on_map(
+    G: nx.MultiDiGraph,
+    path: list[Hashable],
+    start: Hashable,
+    goal: Hashable,
+    title: str,
+    out_png: Path,
+) -> None:
+    """Render one algorithm path on top of the graph."""
+    if plt is None:
+        return
+    pos = {n: (G.nodes[n]["x"], G.nodes[n]["y"]) for n in G.nodes}
+
+    plt.figure(figsize=(7, 7))
+    for u, v, _k, _data in G.edges(keys=True, data=True):
+        x0, y0 = pos[u]
+        x1, y1 = pos[v]
+        plt.plot([x0, x1], [y0, y1], color="#e5e5e5", linewidth=0.9, zorder=1)
+
+    if path:
+        px = [pos[n][0] for n in path if n in pos]
+        py = [pos[n][1] for n in path if n in pos]
+        plt.plot(px, py, color="#1c7ed6", linewidth=3.0, zorder=3, label="Path")
+
+    sx, sy = pos[start]
+    gx, gy = pos[goal]
+    plt.scatter([sx], [sy], c="#2f9e44", s=110, marker="o", edgecolors="black", zorder=4, label="Start")
+    plt.scatter([gx], [gy], c="#d9480f", s=130, marker="*", edgecolors="black", zorder=4, label="Goal")
+
+    plt.title(title)
+    plt.axis("equal")
+    plt.axis("off")
+    plt.legend(loc="best", frameon=False)
+    plt.tight_layout()
+    plt.savefig(out_png, dpi=180, bbox_inches="tight")
+    plt.close()
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(description="Small graph DLS/IDS runner")
     parser.add_argument("--rows", type=int, default=6, help="Grid rows")
@@ -157,8 +225,12 @@ def main() -> None:
     dls_csv = paths["csv"] / "dls_sweep.csv"
     dls_df.to_csv(dls_csv, index=False)
     plot_depth_sweep(dls_df, paths["plots"] / "dls_depth_sweep.png")
+    dls_final = depth_limited_search(G, start, goal, args.dls_max)
+    dls_path = dls_final.path if dls_final.path_found else []
+    print(f"[path] DLS(limit={args.dls_max}) path: {dls_path if dls_path else 'NOT FOUND'}")
 
     ids = iterative_deepening_search(G, start, goal, max_depth=args.ids_max)
+    print(f"[path] IDS(max_depth={args.ids_max}) path: {ids.path if ids.path_found else 'NOT FOUND'}")
     ids_df = pd.DataFrame(
         [
             {
@@ -175,13 +247,22 @@ def main() -> None:
     ids_df.to_csv(ids_csv, index=False)
     ids_plot = paths["plots"] / "ids_summary.png"
     plot_ids_summary(ids, bfs, ids_plot)
+    map_png = paths["plots"] / "map_used.png"
+    dls_path_png = paths["plots"] / "dls_path.png"
+    ids_path_png = paths["plots"] / "ids_path.png"
+    plot_map_used(G, start, goal, map_png)
+    plot_path_on_map(G, dls_path, start, goal, f"DLS Path (limit={args.dls_max})", dls_path_png)
+    plot_path_on_map(G, ids.path if ids.path_found else [], start, goal, f"IDS Path (max_depth={args.ids_max})", ids_path_png)
 
     print(f"[result] DLS sweep saved: {dls_csv}")
     print(f"[result] IDS summary saved: {ids_csv}")
     if plt is None:
         print("[warn] matplotlib not installed; skipped plot generation")
     else:
+        print(f"[result] Plot saved: {map_png}")
         print(f"[result] Plot saved: {paths['plots'] / 'dls_depth_sweep.png'}")
+        print(f"[result] Plot saved: {dls_path_png}")
+        print(f"[result] Plot saved: {ids_path_png}")
         print(f"[result] Plot saved: {ids_plot}")
 
 

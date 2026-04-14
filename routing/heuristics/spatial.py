@@ -14,12 +14,11 @@ def euclidean_heuristic(G: nx.MultiDiGraph, n1: Hashable, n2: Hashable, scale: f
     return scale * math.hypot(x1 - x2, y1 - y2)
 
 
-# Exponential heuristic parameters (defaults here for single source of truth)
+# Benefit-based heuristic parameters (single source of truth)
 HEURISTIC_ALPHA = 0.5
 HEURISTIC_BETA = 0.4
 HEURISTIC_GAMMA = 0.3
 HEURISTIC_LAMBDA = 0.6
-HEURISTIC_EXP_CLAMP = 4.0  # prevent overflow/instability in exp
 
 
 def exponential_feature_heuristic(
@@ -30,12 +29,17 @@ def exponential_feature_heuristic(
     beta: float = HEURISTIC_BETA,
     gamma: float = HEURISTIC_GAMMA,
     lambd: float = HEURISTIC_LAMBDA,
-    exp_clamp: float = HEURISTIC_EXP_CLAMP,
 ) -> Callable[[Hashable], float]:
-    """Return h(n) = d(n, goal) * exp(alpha*T + beta*A + gamma*B - lambda*S).
+    """Return benefit-based heuristic:
 
-    Assumes node attributes traffic_level, accident_risk, bumpiness, safety_score
-    are already populated and clamped to [0, 1].
+    L_T(n) = T_max - T(n)
+    L_A(n) = A_max - A(n)
+    L_B(n) = B_max - B(n)
+    z(n)   = alpha*L_T + beta*L_A + gamma*L_B + lambda*S(n)
+    h(n)   = max(0, d(n,g) - z(n))
+
+    The function name is preserved for backward compatibility with existing
+    experiment/search pipelines.
     """
 
     def _safe_feature(n: Hashable, key: str) -> float:
@@ -45,6 +49,24 @@ def exponential_feature_heuristic(
         except (TypeError, ValueError):
             return 0.0
 
+    def _feature_max(key: str) -> float:
+        vals = []
+        for n in G.nodes:
+            try:
+                vals.append(float(G.nodes[n].get(key, 0.0)))
+            except (TypeError, ValueError):
+                continue
+        if not vals:
+            return 1.0
+        m = max(vals)
+        return m if m > 0.0 else 1.0
+
+    # Features in this project are clamped to [0,1], so these are usually 1.0.
+    # We still infer maxima from graph data for robustness.
+    t_max = _feature_max("traffic_level")
+    a_max = _feature_max("accident_risk")
+    b_max = _feature_max("bumpiness")
+
     def heuristic(n: Hashable) -> float:
         d = euclidean_heuristic(G, n, goal, scale=1.0)
         t = _safe_feature(n, "traffic_level")
@@ -52,9 +74,15 @@ def exponential_feature_heuristic(
         b = _safe_feature(n, "bumpiness")
         s = _safe_feature(n, "safety_score")
 
-        exponent = alpha * t + beta * a + gamma * b - lambd * s
-        # Clamp exponent to avoid numerical explosion
-        exponent = max(-exp_clamp, min(exp_clamp, exponent))
-        return d * math.exp(exponent)
+        low_traffic_benefit = max(0.0, t_max - t)
+        low_accident_benefit = max(0.0, a_max - a)
+        low_bumpiness_benefit = max(0.0, b_max - b)
+        z = (
+            alpha * low_traffic_benefit
+            + beta * low_accident_benefit
+            + gamma * low_bumpiness_benefit
+            + lambd * s
+        )
+        return max(0.0, d - z)
 
     return heuristic

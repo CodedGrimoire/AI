@@ -1,0 +1,27 @@
+{
+  "feature_config":{
+    "seed":2026
+  },
+  "cost_weights":{
+    "alpha_traffic":0.9,
+    "beta_accident":1.1,
+    "gamma_bumpiness":0.6,
+    "lambda_safety":0.8,
+    "min_multiplier":0.05
+  },
+  "heuristic_weights":{
+    "alpha_traffic":0.7,
+    "beta_accident":0.9,
+    "gamma_bumpiness":0.5,
+    "lambda_safety":0.8,
+    "min_factor":0.05
+  },
+  "safe_score_weights":{
+    "w_safety":1.0,
+    "w_traffic":0.9,
+    "w_accident":1.1,
+    "w_bumpiness":0.6
+  },
+  "min_distance_m":3500.0,
+  "max_distance_m":18000.0
+}

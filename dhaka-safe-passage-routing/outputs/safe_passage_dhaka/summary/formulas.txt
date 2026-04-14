@@ -1,0 +1,14 @@
+Contextual edge cost used for informed search:
+
+cost(u,v) = length(u,v) * max(0.050, 1 + alpha*T + beta*A + gamma*B - lambda*S)
+alpha=0.9, beta=1.1, gamma=0.6, lambda=0.8
+
+Contextual heuristic used for Greedy, A*, Weighted A*:
+
+h(n) = d(n,g) * max(0.050, 1 + alpha*T(n) + beta*A(n) + gamma*B(n) - lambda*S(n))
+alpha=0.7, beta=0.9, gamma=0.5, lambda=0.8
+
+Safe passage score (report metric):
+
+safe_passage_score = w1*avg_safety - w2*avg_traffic - w3*avg_accident_risk - w4*avg_bumpiness
+w1=1.0, w2=0.9, w3=1.1, w4=0.6

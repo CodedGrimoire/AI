@@ -303,7 +303,22 @@ def _plot_histograms(adm_df: pd.DataFrame, cons_df: pd.DataFrame, out_dir: Path)
 def _format_top_table(df: pd.DataFrame, cols: list[str], n: int = 10) -> str:
     if df.empty:
         return "No violations found."
-    return df[cols].head(n).to_markdown(index=False)
+    top = df[cols].head(n).copy()
+
+    # Build markdown table without optional tabulate dependency.
+    header = "| " + " | ".join(cols) + " |"
+    divider = "| " + " | ".join(["---"] * len(cols)) + " |"
+    rows = []
+    for _, row in top.iterrows():
+        vals = []
+        for c in cols:
+            v = row[c]
+            if isinstance(v, float):
+                vals.append(f"{v:.6f}")
+            else:
+                vals.append(str(v))
+        rows.append("| " + " | ".join(vals) + " |")
+    return "\n".join([header, divider, *rows])
 
 
 def generate_markdown_report(

@@ -1,7 +1,7 @@
 """Whole-Dhaka informed-search safe-passage experiment pipeline.
 
 Run example:
-python -m dhaka_safe_passage.experiment_runner --pairs 15 --weighted-w 1.5 --include-ucs
+python -m dhaka_safe_passage.experiment_runner --pairs 15 --weighted-w 1.5
 """
 
 from __future__ import annotations
@@ -21,7 +21,6 @@ import pandas as pd
 from .algorithms import (
     a_star_search,
     greedy_best_first_search,
-    uniform_cost_search,
     weighted_a_star_search,
 )
 from .contextual_features import FeatureConfig, assign_contextual_features
@@ -36,6 +35,8 @@ from .visualization import (
     save_route_overlay,
     save_scatter,
 )
+
+INFORMED_ALGORITHMS = ("Greedy best-first search", "A* search", "Weighted A*")
 
 
 def _largest_component(G: nx.MultiDiGraph) -> nx.MultiDiGraph:
@@ -125,7 +126,6 @@ def _run_for_pair(
     start,
     goal,
     weighted_w: float,
-    include_ucs: bool,
     score_weights: SafeScoreWeights,
     h_weights: HeuristicWeights,
 ) -> tuple[list[dict], dict[str, list]]:
@@ -139,8 +139,6 @@ def _run_for_pair(
         ("A* search", lambda: a_star_search(G, start, goal, h_fn)),
         ("Weighted A*", lambda: weighted_a_star_search(G, start, goal, h_fn, w=weighted_w)),
     ]
-    if include_ucs:
-        algos.append(("Uniform cost search", lambda: uniform_cost_search(G, start, goal)))
 
     for label, fn in algos:
         res = fn()
@@ -242,7 +240,6 @@ def parse_args() -> argparse.Namespace:
     p.add_argument("--representative-pairs", type=int, default=3, help="Number of route overlays to save")
     p.add_argument("--seed", type=int, default=2026)
     p.add_argument("--weighted-w", type=float, default=1.5)
-    p.add_argument("--include-ucs", action="store_true", help="Include UCS baseline in informed comparison")
     p.add_argument("--min-distance-m", type=float, default=3500.0)
     p.add_argument("--max-distance-m", type=float, default=18000.0)
     p.add_argument("--practical-subgraph-nodes", type=int, default=0, help="Optional manageable subgraph size sampled from whole Dhaka context")
@@ -297,7 +294,6 @@ def main() -> None:
             s,
             g,
             args.weighted_w,
-            args.include_ucs,
             score_weights,
             heuristic_weights,
         )
@@ -306,7 +302,7 @@ def main() -> None:
             representative.append((pair_id, s, g, routes))
 
     df = pd.DataFrame(all_rows)
-    informed_df = df[df["algorithm_name"].isin(["Greedy best-first search", "A* search", "Weighted A*", "Uniform cost search"])].copy()
+    informed_df = df[df["algorithm_name"].isin(INFORMED_ALGORITHMS)].copy()
 
     mean_cols = [
         "total_path_cost",
@@ -345,7 +341,7 @@ def main() -> None:
     for pair_id, s, g, routes in representative:
         save_route_overlay(
             G,
-            {k: v for k, v in routes.items() if k in {"Greedy best-first search", "A* search", "Weighted A*", "Uniform cost search"}},
+            {k: v for k, v in routes.items() if k in INFORMED_ALGORITHMS},
             s,
             g,
             out["routes"] / f"route_overlay_pair_{pair_id:02d}.png",
@@ -354,7 +350,7 @@ def main() -> None:
 
     interpretation = _interpretation(df_mean)
     graph_info = f"Graph nodes={len(G)}, edges={len(G.edges())}, component={G.graph.get('component_type', 'unknown')}"
-    run_info = f"pairs={args.pairs}, weighted_w={args.weighted_w}, include_ucs={args.include_ucs}, seed={args.seed}"
+    run_info = f"pairs={args.pairs}, weighted_w={args.weighted_w}, seed={args.seed}"
     summary_text = "\n".join([graph_info, run_info, "", interpretation])
     (out["summary"] / "experiment_summary.txt").write_text(summary_text, encoding="utf-8")
 

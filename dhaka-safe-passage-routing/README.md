@@ -28,7 +28,7 @@ Standalone extension repo for informed-search safe-passage evaluation on Dhaka r
 
 ## Important Scope Rule
 - Uninformed search implementations are copied as-is from the base project.
-- Safe-passage objective is applied to informed algorithms (Greedy, A*, Weighted A*) with optional UCS reference.
+- Safe-passage objective comparisons and plots are restricted to informed algorithms only: Greedy, A*, and Weighted A*.
 
 ## Graph Cache and Outputs
 - Graph cache folder (separate from your old repo runs): `graph_cache/`
@@ -43,7 +43,7 @@ pip install -r requirements.txt
 
 ## Run (Default)
 ```bash
-python -m dhaka_safe_passage.experiment_runner --pairs 12 --weighted-w 1.5 --include-ucs
+python -m dhaka_safe_passage.experiment_runner --pairs 12 --weighted-w 1.5
 ```
 
 ## Run (Practical Mode For Large Graph)
@@ -51,7 +51,6 @@ python -m dhaka_safe_passage.experiment_runner --pairs 12 --weighted-w 1.5 --inc
 python -m dhaka_safe_passage.experiment_runner \
   --pairs 15 \
   --weighted-w 1.5 \
-  --include-ucs \
   --practical-subgraph-nodes 18000
 ```
 

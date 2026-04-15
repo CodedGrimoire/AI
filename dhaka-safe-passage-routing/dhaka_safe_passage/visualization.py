@@ -19,7 +19,6 @@ PALETTE = {
     "Greedy best-first search": "#d95f02",
     "A* search": "#1b9e77",
     "Weighted A*": "#7570b3",
-    "Uniform cost search": "#4c78a8",
 }
 
 

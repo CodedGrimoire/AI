@@ -1,10 +1,10 @@
 Graph nodes=103386, edges=253424, component=strongly_connected
-pairs=12, weighted_w=1.5, seed=2026
+pairs=1, weighted_w=1.5, seed=2026
 
 Safest overall route quality: Greedy best-first search
 Best at avoiding traffic exposure: Greedy best-first search
 Best at minimizing accident exposure: Greedy best-first search
 Best at minimizing bumpiness: A* search
 Fastest runtime: Greedy best-first search
-Best balanced contextual penalty: A* search
-Weighted A* vs A*: time delta=0.0239s (positive means Weighted A* faster), safe-passage delta=0.0048 (positive means Weighted A* safer).
+Best balanced contextual penalty: Weighted A*
+Weighted A* vs A*: time delta=-0.1357s (positive means Weighted A* faster), safe-passage delta=0.0427 (positive means Weighted A* safer).

@@ -9,6 +9,7 @@ kept for offline scenarios.
 from __future__ import annotations
 
 import os
+from pathlib import Path
 
 # Disable network downloads for PROJ data *before* importing osmnx/pyproj
 # to avoid long hangs in restricted environments.
@@ -18,6 +19,11 @@ import osmnx as ox
 import networkx as nx
 import time
 import math
+
+
+CACHE_DIR = Path("cache")
+CACHE_DIR.mkdir(parents=True, exist_ok=True)
+GRAPHML_CACHE = CACHE_DIR / "dhaka_drive_projected.graphml"
 
 
 def _synthetic_grid(target_nodes: int = 400, spacing: float = 30.0) -> nx.MultiDiGraph:
@@ -78,9 +84,15 @@ def generate_graph(use_osm: bool = True) -> nx.MultiDiGraph:
 
     place_query = "Dhaka, Bangladesh"
     try:
-        print(f"[info] Downloading OSM graph for: {place_query} (drive)")
-        G = ox.graph_from_place(place_query, network_type="drive", simplify=True)
-        G = ox.project_graph(G)
+        if GRAPHML_CACHE.exists():
+            print(f"[info] Loading cached graph: {GRAPHML_CACHE}")
+            G = ox.load_graphml(GRAPHML_CACHE)
+        else:
+            print(f"[info] Downloading OSM graph for: {place_query} (drive)")
+            G = ox.graph_from_place(place_query, network_type="drive", simplify=True)
+            G = ox.project_graph(G)
+            ox.save_graphml(G, GRAPHML_CACHE)
+            print(f"[info] Saved graph cache: {GRAPHML_CACHE}")
 
         # Keep largest strongly connected component for directed routing.
         try:

@@ -197,7 +197,12 @@ def depth_limited_search(G: nx.MultiDiGraph, start: Hashable, goal: Hashable, li
     visited: Set[Hashable] = set()
     expanded_nodes: List[Hashable] = []
 
-    def recursive_dls(node: Hashable, depth: int, parents: Dict[Hashable, Optional[Hashable]]) -> Optional[List[Hashable]]:
+    def recursive_dls(
+        node: Hashable,
+        depth: int,
+        parents: Dict[Hashable, Optional[Hashable]],
+        path_set: Set[Hashable],
+    ) -> Optional[List[Hashable]]:
         nonlocal expanded, max_frontier, cutoff_occurred
         visited.add(node)
         expanded_nodes.append(node)
@@ -209,15 +214,18 @@ def depth_limited_search(G: nx.MultiDiGraph, start: Hashable, goal: Hashable, li
             return None
         expanded += 1
         for _, v, _, _ in G.out_edges(node, keys=True, data=True):
-            if v not in parents:  # avoids cycles on current path
+            if v not in path_set:  # avoids cycles only on the current recursion path
                 parents[v] = node
-                res = recursive_dls(v, depth + 1, parents)
+                path_set.add(v)
+                res = recursive_dls(v, depth + 1, parents, path_set)
                 if res is not None:
                     return res
+                path_set.remove(v)
+                parents.pop(v, None)
         return None
 
     parents: Dict[Hashable, Optional[Hashable]] = {start: None}
-    path = recursive_dls(start, 0, parents)
+    path = recursive_dls(start, 0, parents, {start})
     cost = compute_path_cost(G, path) if path else float("inf")
     return SearchResult(
         algorithm_name="Depth Limited Search",

@@ -16,6 +16,8 @@ from typing import Hashable, Optional
 
 import networkx as nx
 import pandas as pd
+from routing.data.graph_builder import generate_graph
+from routing.data.features_costs import assign_synthetic_features, apply_cost
 
 try:
     import matplotlib
@@ -51,6 +53,36 @@ def make_small_grid(rows: int = 10, cols: int = 10, spacing: float = 30.0) -> nx
         G.add_edge(v, u, length=spacing, custom_cost=spacing)
 
     return G
+
+
+def make_osm_subgraph(target_nodes: int = 200) -> nx.MultiDiGraph:
+    """Load OSM graph and keep a connected subgraph around target_nodes."""
+    if target_nodes < 4:
+        raise ValueError("target_nodes must be >= 4")
+
+    G = generate_graph(use_osm=True)
+    assign_synthetic_features(G)
+    apply_cost(G)
+
+    if len(G) <= target_nodes:
+        return G
+
+    # Expand from a deterministic seed node and keep the first target_nodes
+    # reached by BFS over an undirected view to preserve local connectivity.
+    UG = G.to_undirected(as_view=True)
+    seed = next(iter(UG.nodes))
+    bfs_tree = nx.bfs_tree(UG, seed)
+    selected_nodes = list(bfs_tree.nodes())[:target_nodes]
+    H = G.subgraph(selected_nodes).copy()
+
+    # Keep one connected component suitable for directed routing.
+    if H.is_directed():
+        comp = max(nx.strongly_connected_components(H), key=len)
+    else:
+        comp = max(nx.connected_components(H), key=len)
+    H = H.subgraph(comp).copy()
+    H.graph["graph_label"] = f"Dhaka OSM subgraph (~{target_nodes} nodes)"
+    return H
 
 
 def dims_for_target_nodes(target_nodes: int) -> tuple[int, int]:
@@ -196,6 +228,7 @@ def plot_path_on_map(
 
 def main() -> None:
     parser = argparse.ArgumentParser(description="Small graph DLS/IDS runner")
+    parser.add_argument("--use-osm", action="store_true", help="Use OSMnx Dhaka map instead of synthetic grid")
     parser.add_argument("--rows", type=int, default=10, help="Grid rows")
     parser.add_argument("--cols", type=int, default=10, help="Grid cols")
     parser.add_argument("--nodes", type=int, default=100, help="Target node count (overrides rows/cols when set)")
@@ -207,12 +240,14 @@ def main() -> None:
 
     paths = build_output_paths("small_graph_ids_dls")
 
-    if args.nodes is not None:
-        rows, cols = dims_for_target_nodes(args.nodes)
+    if args.use_osm:
+        G = make_osm_subgraph(target_nodes=args.nodes)
     else:
-        rows, cols = args.rows, args.cols
-
-    G = make_small_grid(rows=rows, cols=cols)
+        if args.nodes is not None:
+            rows, cols = dims_for_target_nodes(args.nodes)
+        else:
+            rows, cols = args.rows, args.cols
+        G = make_small_grid(rows=rows, cols=cols)
     start, goal = choose_endpoints(G, parse_node(args.start), parse_node(args.goal))
 
     print(f"[info] Graph={G.graph['graph_label']} | nodes={len(G)} edges={len(G.edges())}")

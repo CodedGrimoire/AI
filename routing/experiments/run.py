@@ -25,8 +25,7 @@ import networkx as nx
 import pandas as pd
 import osmnx as ox
 
-from routing.data.graph_builder import generate_graph
-from routing.data.features_costs import assign_synthetic_features, apply_cost
+from routing.experiments.graph_scope import load_graph_with_costs
 from routing.heuristics.spatial import euclidean_heuristic, exponential_feature_heuristic
 from routing.viz.plotting import plot_single_route, plot_all_routes, plot_explored_nodes
 from routing.algorithms import (
@@ -44,19 +43,28 @@ from routing.algorithms import (
 
 
 OUTPUT_DIR = Path("images")
-OUTPUT_DIR.mkdir(exist_ok=True)
+DIRS: Dict[str, Path] = {}
 
-DIRS = {
-    "bars": OUTPUT_DIR / "bars",
-    "scatter": OUTPUT_DIR / "scatter",
-    "weighted_astar": OUTPUT_DIR / "weighted_astar",
-    "depth": OUTPUT_DIR / "depth",
-    "paths": OUTPUT_DIR / "paths",
-    "overlays": OUTPUT_DIR / "overlays",
-    "explored": OUTPUT_DIR / "explored",
-}
-for _p in DIRS.values():
-    _p.mkdir(parents=True, exist_ok=True)
+
+def configure_output_dirs(root: Path) -> None:
+    """Configure all output folders under the provided root path."""
+    global OUTPUT_DIR, DIRS
+    OUTPUT_DIR = root
+    OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
+    DIRS = {
+        "bars": OUTPUT_DIR / "bars",
+        "scatter": OUTPUT_DIR / "scatter",
+        "weighted_astar": OUTPUT_DIR / "weighted_astar",
+        "depth": OUTPUT_DIR / "depth",
+        "paths": OUTPUT_DIR / "paths",
+        "overlays": OUTPUT_DIR / "overlays",
+        "explored": OUTPUT_DIR / "explored",
+    }
+    for _p in DIRS.values():
+        _p.mkdir(parents=True, exist_ok=True)
+
+
+configure_output_dirs(OUTPUT_DIR)
 
 WEIGHTS = [0.5, 1.0, 1.5, 2.0, 3.0]
 DLS_LIMITS = [2, 4, 6, 8, 10, 15, 20, 25, 30]
@@ -462,11 +470,12 @@ def main():
     parser.add_argument("--random-start-goal", action="store_true", help="Pick random start/goal")
     parser.add_argument("--seed", type=int, default=42, help="Random seed for sampling")
     parser.add_argument("--far-apart", action="store_true", default=True, help="Prefer far-apart sampling")
+    parser.add_argument("--max-nodes", type=int, default=None, help="Limit graph to approximately this many nodes")
+    parser.add_argument("--output-dir", type=str, default="images", help="Directory to write CSVs/plots")
     args = parser.parse_args()
 
-    G = generate_graph(use_osm=True)
-    assign_synthetic_features(G)
-    apply_cost(G)
+    configure_output_dirs(Path(args.output_dir))
+    G = load_graph_with_costs(use_osm=True, max_nodes=args.max_nodes, seed=args.seed)
 
     rng = random.Random(args.seed)
     start_node = args.start
@@ -491,7 +500,8 @@ def main():
         rng=rng,
     )
 
-    print(f"[info] Using start={start}, goal={goal}, nodes={len(G)}, edges={len(G.edges())}")
+    scope = "full_map" if not args.max_nodes else f"~{args.max_nodes}_nodes"
+    print(f"[info] Scope={scope} | start={start}, goal={goal}, nodes={len(G)}, edges={len(G.edges())}")
 
     # Save a light base map preview
     try:

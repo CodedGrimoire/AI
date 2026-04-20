@@ -1,26 +1,19 @@
-"""Weighted A* sweep utility.
-
-Runs Weighted A* across a range of weights (at least 10) on the OSM/Dhaka
-graph used elsewhere in the repo, and saves PNG charts for cost, speed, and
-node expansions. Also reports accuracy relative to the optimal (Dijkstra)
-path cost.
-"""
+"""Weighted A* comparative sweep on Dhaka map (full or node-limited)."""
 
 from __future__ import annotations
 
+import argparse
 from dataclasses import dataclass
 from pathlib import Path
 from typing import List
 
 import matplotlib
 
-# Force non-interactive backend so plotting works in headless environments
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt
-import networkx as nx
+import pandas as pd
 
-from routing.data.graph_builder import generate_graph
-from routing.data.features_costs import assign_synthetic_features, apply_cost
+from routing.experiments.graph_scope import load_graph_with_costs
 from routing.heuristics.spatial import euclidean_heuristic, exponential_feature_heuristic
 from routing.algorithms import (
     uniform_cost_search,
@@ -29,39 +22,30 @@ from routing.algorithms import (
 )
 
 
-OUTPUT_DIR = Path("images")
-OUTPUT_DIR.mkdir(exist_ok=True)
-
-
 @dataclass
 class RunResult:
     w: float
     cost: float
     expanded: int
     time_s: float
+    path_found: bool
 
 
-def choose_start_goal(G: nx.MultiDiGraph):
-    """Same heuristic-based farthest-pair selection as run_experiments."""
-    if not nx.is_weakly_connected(G):
-        largest_cc = max(nx.weakly_connected_components(G), key=len)
-        G = G.subgraph(largest_cc).copy()
-
+def choose_start_goal(G):
+    """Pick far-apart endpoints for stable comparisons."""
     nodes = list(G.nodes)
     start = nodes[0]
     goal = max(nodes, key=lambda n: euclidean_heuristic(G, start, n, 1.0))
     start = max(nodes, key=lambda n: euclidean_heuristic(G, n, goal, 1.0))
-    return start, goal, G
+    return start, goal
 
 
-def run_sweep(weights: List[float]) -> None:
-    G = generate_graph()
-    assign_synthetic_features(G)
-    apply_cost(G)
+def run_sweep(weights: List[float], *, max_nodes: int | None, seed: int, output_dir: Path) -> None:
+    output_dir.mkdir(parents=True, exist_ok=True)
 
-    start, goal, G = choose_start_goal(G)
+    G = load_graph_with_costs(use_osm=True, max_nodes=max_nodes, seed=seed)
+    start, goal = choose_start_goal(G)
 
-    # Optimal baseline with Uniform Cost Search (distance-only)
     d_res = uniform_cost_search(G, start, goal)
     d_cost = d_res.total_path_cost
 
@@ -69,11 +53,18 @@ def run_sweep(weights: List[float]) -> None:
 
     results: List[RunResult] = []
     for w in weights:
-        path, g_cost, expanded, elapsed = weighted_a_star_search(G, start, goal, h_fn, w=w)
-        cost = compute_path_cost(G, path)
-        results.append(RunResult(w=w, cost=cost, expanded=expanded, time_s=elapsed))
+        res = weighted_a_star_search(G, start, goal, h_fn, w=w)
+        cost = compute_path_cost(G, res.path)
+        results.append(
+            RunResult(
+                w=w,
+                cost=cost,
+                expanded=res.nodes_expanded,
+                time_s=res.execution_time,
+                path_found=res.path_found,
+            )
+        )
 
-    # --- Plotting ---
     ws = [r.w for r in results]
     costs = [r.cost for r in results]
     expansions = [r.expanded for r in results]
@@ -83,7 +74,7 @@ def run_sweep(weights: List[float]) -> None:
     fig, axes = plt.subplots(1, 3, figsize=(14, 4))
 
     axes[0].plot(ws, costs, marker="o", color="tab:blue")
-    axes[0].axhline(d_cost, color="black", linestyle="--", label="Dijkstra cost")
+    axes[0].axhline(d_cost, color="black", linestyle="--", label="UCS baseline")
     axes[0].set_xlabel("Weight w")
     axes[0].set_ylabel("Path cost")
     axes[0].set_title("WA* cost vs w")
@@ -100,29 +91,64 @@ def run_sweep(weights: List[float]) -> None:
     axes[2].set_title("WA* runtime vs w")
 
     plt.tight_layout()
-    plt.savefig(OUTPUT_DIR / "wa_sweep_metrics.png", dpi=180)
+    plt.savefig(output_dir / "wa_sweep_metrics.png", dpi=180)
     plt.close(fig)
 
-    # Accuracy bar chart
     plt.figure(figsize=(6, 4))
     plt.bar([str(w) for w in ws], accuracies, color="tab:purple")
-    plt.axhline(1.0, color="black", linestyle="--", label="Optimal (Dijkstra)")
+    plt.axhline(1.0, color="black", linestyle="--", label="Optimal (UCS)")
     plt.ylabel("Cost / optimal")
     plt.xlabel("Weight w")
     plt.title("WA* accuracy vs optimal cost")
     plt.legend()
     plt.tight_layout()
-    plt.savefig(OUTPUT_DIR / "wa_sweep_accuracy.png", dpi=180)
+    plt.savefig(output_dir / "wa_sweep_accuracy.png", dpi=180)
     plt.close()
 
-    # Text summary for quick CLI view
-    print("Baseline (Dijkstra): cost={:.2f}, expanded={}, time={:.4f}s".format(d_cost, d_exp, d_time))
-    print("w, cost, cost/opt, expanded, time_s")
-    for r, acc in zip(results, accuracies):
-        print(f"{r.w:.3g}, {r.cost:.2f}, {acc:.3f}, {r.expanded}, {r.time_s:.4f}")
+    df = pd.DataFrame(
+        [
+            {
+                "weight": r.w,
+                "cost": r.cost,
+                "cost_over_optimal": (r.cost / d_cost if d_cost > 0 else float("inf")),
+                "nodes_expanded": r.expanded,
+                "time_s": r.time_s,
+                "path_found": r.path_found,
+            }
+            for r in results
+        ]
+    )
+    df.to_csv(output_dir / "wa_sweep_results.csv", index=False)
+
+    scope = "full_map" if max_nodes is None else f"~{max_nodes}_nodes"
+    print(f"[info] Scope={scope} | nodes={len(G)} edges={len(G.edges())} start={start} goal={goal}")
+    print(
+        "Baseline (UCS): cost={:.2f}, expanded={}, time={:.4f}s".format(
+            d_res.total_path_cost,
+            d_res.nodes_expanded,
+            d_res.execution_time,
+        )
+    )
+    print(f"[result] Saved: {output_dir / 'wa_sweep_metrics.png'}")
+    print(f"[result] Saved: {output_dir / 'wa_sweep_accuracy.png'}")
+    print(f"[result] Saved: {output_dir / 'wa_sweep_results.csv'}")
+
+
+def main() -> None:
+    parser = argparse.ArgumentParser(description="Weighted A* comparative sweep")
+    parser.add_argument("--max-nodes", type=int, default=None, help="Limit graph to approximately this many nodes")
+    parser.add_argument("--seed", type=int, default=42, help="Random seed for node-limited sampling")
+    parser.add_argument(
+        "--output-dir",
+        type=str,
+        default="images/weighted_astar_sweep",
+        help="Directory to write plots/results",
+    )
+    args = parser.parse_args()
+
+    weights = [0.5, 0.8, 1.0, 1.2, 1.5, 1.8, 2.0, 2.5, 3.0, 4.0, 5.0]
+    run_sweep(weights, max_nodes=args.max_nodes, seed=args.seed, output_dir=Path(args.output_dir))
 
 
 if __name__ == "__main__":
-    # 10+ weights from 0.5 to 5.0 inclusive
-    weights = [round(w, 2) for w in [0.5, 0.8, 1.0, 1.2, 1.5, 1.8, 2.0, 2.5, 3.0, 4.0, 5.0]]
-    run_sweep(weights)
+    main()

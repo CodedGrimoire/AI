@@ -42,15 +42,49 @@ cache/                     # OSMnx graph cache
 README.md                  # this guide
 ```
 
-## How to run
+## Organized experiment folders
 
-| Purpose | Command (from repo root) | Outputs |
-| --- | --- | --- |
-| Full experiment suite (linear + extended cost models, charts, route PNGs) | `python -m routing.experiments.run` | PNGs in `images/` (cost_vs_expansion, linear_vs_extended, routes, bars, accuracy) |
-| Weighted A* sweep (multiple weights, metrics + accuracy) | `python -m routing.experiments.weighted_astar_sweep` | `images/wa_sweep_metrics.png`, `images/wa_sweep_accuracy.png` |
-| Heuristic admissibility/consistency check | `python -m routing.experiments.heuristic_verification` | Prints summary to stdout |
+Use the three dedicated folders under `experiments/`:
 
-All scripts rebuild a small OSM graph around Dhaka, attach synthetic features, apply the cost model, run the algorithms, and save figures to `images/`.
+- `experiments/all_algorithms`
+- `experiments/weighted_astar_analysis`
+- `experiments/heuristic_check`
+
+Each folder has:
+
+- its own `images/` directory
+- two run commands in its local `README.md`:
+  - full Dhaka map
+  - Dhaka map restricted to ~500 nodes
+
+## Quick commands (repo root)
+
+Activate env first:
+
+```bash
+source venv/bin/activate
+```
+
+All algorithms:
+
+```bash
+python -m routing.experiments.run --output-dir experiments/all_algorithms/images/full_dhaka
+python -m routing.experiments.run --max-nodes 500 --output-dir experiments/all_algorithms/images/dhaka_500_nodes
+```
+
+Weighted A* comparative sweep:
+
+```bash
+python -m routing.experiments.weighted_astar_sweep --output-dir experiments/weighted_astar_analysis/images/full_dhaka
+python -m routing.experiments.weighted_astar_sweep --max-nodes 500 --output-dir experiments/weighted_astar_analysis/images/dhaka_500_nodes
+```
+
+Heuristic verification:
+
+```bash
+python -m routing.experiments.heuristic_verification --output-dir experiments/heuristic_check/images/full_dhaka
+python -m routing.experiments.heuristic_verification --max-nodes 500 --output-dir experiments/heuristic_check/images/dhaka_500_nodes
+```
 
 ## Public API shortcuts
 Import helpers directly from the package:

@@ -1,118 +1,188 @@
-"""Empirically verify exponential heuristic for admissibility and consistency.
-
-Usage:
-    python heuristic_verification.py
-
-Graph + costs come from the existing pipeline:
-- route_planning.graph_builder.generate_graph
-- route_planning.features_costs.assign_synthetic_features / apply_cost
-
-Heuristic: exponential feature heuristic to the chosen goal node.
-
-Checks:
-- Consistency: h(u) <= c(u,v) + h(v) for every directed edge (uses min custom_cost per multi-edge).
-- Admissibility: h(n) <= true shortest-path cost(n -> goal) via Dijkstra.
-
-Outputs a concise summary and a few example violations if any.
-"""
+"""Empirical admissibility/consistency checks for exponential heuristic."""
 
 from __future__ import annotations
 
-from dataclasses import dataclass
-from typing import Dict, Hashable, List, Tuple
+import argparse
+from pathlib import Path
+from typing import Dict, Hashable
 
+import matplotlib
+
+matplotlib.use("Agg")
+import matplotlib.pyplot as plt
 import networkx as nx
+import pandas as pd
 
-from routing.data.graph_builder import generate_graph
-from routing.data.features_costs import assign_synthetic_features, apply_cost
+from routing.experiments.graph_scope import load_graph_with_costs
 from routing.heuristics.spatial import euclidean_heuristic, exponential_feature_heuristic
-from routing.algorithms import uniform_cost_search
-from routing.experiments.run import choose_start_goal
 
 
-def edge_min_cost(G: nx.MultiDiGraph, u: Hashable, v: Hashable) -> float:
-    """Return the minimum custom_cost over parallel edges u->v (default 1.0)."""
+def choose_goal_far(G) -> Hashable:
+    nodes = list(G.nodes)
+    start = nodes[0]
+    goal = max(nodes, key=lambda n: euclidean_heuristic(G, start, n, 1.0))
+    return goal
+
+
+def edge_min_cost(G, u: Hashable, v: Hashable) -> float:
     datas = G.get_edge_data(u, v)
     if not datas:
         return float("inf")
     return min(float(d.get("custom_cost", 1.0)) for d in datas.values())
 
 
-def compute_heuristics(G: nx.MultiDiGraph, goal: Hashable) -> Dict[Hashable, float]:
+def compute_heuristics(G, goal: Hashable) -> Dict[Hashable, float]:
     h_fn = exponential_feature_heuristic(G, goal)
     return {n: h_fn(n) for n in G.nodes}
 
 
-def check_consistency(G: nx.MultiDiGraph, h: Dict[Hashable, float]):
-    total = 0
-    violations: List[Tuple[Hashable, Hashable, float, float, float]] = []
+def consistency_frame(G, h: Dict[Hashable, float]) -> pd.DataFrame:
+    rows = []
     for u, v in G.edges():
-        total += 1
         c = edge_min_cost(G, u, v)
-        if h[u] > c + h[v] + 1e-9:  # tiny tolerance
-            if len(violations) < 5:
-                violations.append((u, v, h[u], c, h[v]))
-    return total, violations
+        residual = h[u] - (c + h[v])
+        rows.append(
+            {
+                "u": u,
+                "v": v,
+                "h_u": h[u],
+                "edge_cost": c,
+                "h_v": h[v],
+                "residual": residual,
+                "is_violation": residual > 1e-9,
+            }
+        )
+    return pd.DataFrame(rows)
 
 
-def dijkstra_true_cost(G: nx.MultiDiGraph, start: Hashable, goal: Hashable) -> float:
-    # Uniform cost search equals Dijkstra on positive edge distances.
-    res = uniform_cost_search(G, start, goal)
-    return res.total_path_cost if res.path_found else float("inf")
-
-
-def check_admissibility(G: nx.MultiDiGraph, goal: Hashable, h: Dict[Hashable, float]):
-    total = 0
-    violations: List[Tuple[Hashable, float, float]] = []
+def admissibility_frame(G, goal: Hashable, h: Dict[Hashable, float]) -> pd.DataFrame:
+    # true_cost_to_goal(n) via Dijkstra on reversed graph from goal
+    rev = G.reverse(copy=False)
+    true_costs = dict(nx.single_source_dijkstra_path_length(rev, goal, weight="custom_cost"))
+    rows = []
     for n in G.nodes:
-        total += 1
-        true_cost = dijkstra_true_cost(G, n, goal)
-        if h[n] > true_cost + 1e-9:
-            if len(violations) < 5:
-                violations.append((n, h[n], true_cost))
-    return total, violations
+        tc = float(true_costs.get(n, float("inf")))
+        residual = h[n] - tc
+        rows.append(
+            {
+                "node": n,
+                "h_n": h[n],
+                "true_cost_to_goal": tc,
+                "residual": residual,
+                "is_violation": residual > 1e-9,
+            }
+        )
+    return pd.DataFrame(rows)
 
 
-def build_graph():
-    G = generate_graph()
-    assign_synthetic_features(G)
-    apply_cost(G)
-    start, goal, G_conn = choose_start_goal(G)
-    return G_conn, goal
+def write_plots(cons_df: pd.DataFrame, adm_df: pd.DataFrame, out_dir: Path) -> None:
+    plt.figure(figsize=(7, 4))
+    plt.hist(cons_df["residual"], bins=60, color="#1f77b4", alpha=0.85)
+    plt.axvline(0.0, color="black", linestyle="--")
+    plt.title("Consistency residuals: h(u) - (c(u,v)+h(v))")
+    plt.xlabel("Residual")
+    plt.ylabel("Count")
+    plt.tight_layout()
+    plt.savefig(out_dir / "consistency_residual_histogram.png", dpi=180)
+    plt.close()
+
+    plt.figure(figsize=(7, 4))
+    finite = adm_df[adm_df["true_cost_to_goal"] < float("inf")]
+    plt.hist(finite["residual"], bins=60, color="#2ca02c", alpha=0.85)
+    plt.axvline(0.0, color="black", linestyle="--")
+    plt.title("Admissibility residuals: h(n) - true_cost(n,goal)")
+    plt.xlabel("Residual")
+    plt.ylabel("Count")
+    plt.tight_layout()
+    plt.savefig(out_dir / "admissibility_delta_histogram.png", dpi=180)
+    plt.close()
+
+    rates = pd.DataFrame(
+        [
+            {
+                "check": "consistency",
+                "total": int(len(cons_df)),
+                "violations": int(cons_df["is_violation"].sum()),
+            },
+            {
+                "check": "admissibility",
+                "total": int(len(adm_df)),
+                "violations": int(adm_df["is_violation"].sum()),
+            },
+        ]
+    )
+    rates["violation_rate"] = rates["violations"] / rates["total"].replace(0, 1)
+    plt.figure(figsize=(6, 4))
+    plt.bar(rates["check"], rates["violation_rate"], color=["#1f77b4", "#2ca02c"])
+    plt.ylim(0, 1)
+    plt.ylabel("Violation rate")
+    plt.title("Heuristic violation rates")
+    plt.tight_layout()
+    plt.savefig(out_dir / "heuristic_violation_rates.png", dpi=180)
+    plt.close()
 
 
-def main():
-    G, goal = build_graph()
+def main() -> None:
+    parser = argparse.ArgumentParser(description="Heuristic admissibility/consistency verification")
+    parser.add_argument("--max-nodes", type=int, default=None, help="Limit graph to approximately this many nodes")
+    parser.add_argument("--seed", type=int, default=42, help="Random seed for node-limited sampling")
+    parser.add_argument(
+        "--output-dir",
+        type=str,
+        default="images/heuristic_verification",
+        help="Directory to write reports/results",
+    )
+    args = parser.parse_args()
+
+    out_dir = Path(args.output_dir)
+    out_dir.mkdir(parents=True, exist_ok=True)
+
+    G = load_graph_with_costs(use_osm=True, max_nodes=args.max_nodes, seed=args.seed)
+    goal = choose_goal_far(G)
     h = compute_heuristics(G, goal)
 
-    # Consistency
-    edges_checked, cons_violations = check_consistency(G, h)
-    cons_status = "CONSISTENT" if not cons_violations else "NOT CONSISTENT"
+    cons_df = consistency_frame(G, h)
+    adm_df = admissibility_frame(G, goal, h)
 
-    # Admissibility
-    nodes_checked, adm_violations = check_admissibility(G, goal, h)
-    adm_status = "ADMISSIBLE" if not adm_violations else "NOT ADMISSIBLE"
+    cons_df.to_csv(out_dir / "consistency_results.csv", index=False)
+    adm_df.to_csv(out_dir / "admissibility_results.csv", index=False)
 
-    print("=== HEURISTIC VERIFICATION ===")
-    print()
-    print("[Consistency]")
-    print(f"Edges checked: {edges_checked}")
-    print(f"Violations: {len(cons_violations)}")
-    print(f"Status: {cons_status}")
-    if cons_violations:
-        print("Examples (u, v, h(u), cost, h(v)):")
-        for u, v, hu, c, hv in cons_violations:
-            print(f"  {u} -> {v} | h(u)={hu:.4f}, cost={c:.4f}, h(v)={hv:.4f}")
+    summary = pd.DataFrame(
+        [
+            {
+                "check": "consistency",
+                "total_checked": int(len(cons_df)),
+                "violations": int(cons_df["is_violation"].sum()),
+                "violation_rate": float(cons_df["is_violation"].mean()),
+                "max_residual": float(cons_df["residual"].max()),
+                "avg_positive_residual_violating": float(cons_df.loc[cons_df["is_violation"], "residual"].mean())
+                if cons_df["is_violation"].any()
+                else 0.0,
+            },
+            {
+                "check": "admissibility",
+                "total_checked": int(len(adm_df)),
+                "violations": int(adm_df["is_violation"].sum()),
+                "violation_rate": float(adm_df["is_violation"].mean()),
+                "max_residual": float(adm_df["residual"].max()),
+                "avg_positive_residual_violating": float(adm_df.loc[adm_df["is_violation"], "residual"].mean())
+                if adm_df["is_violation"].any()
+                else 0.0,
+            },
+        ]
+    )
+    summary.to_csv(out_dir / "summary.csv", index=False)
 
-    print()
-    print("[Admissibility]")
-    print(f"Nodes checked: {nodes_checked}")
-    print(f"Violations: {len(adm_violations)}")
-    print(f"Status: {adm_status}")
-    if adm_violations:
-        print("Examples (n, h(n), true_cost):")
-        for n, hn, tc in adm_violations:
-            print(f"  {n} | h={hn:.4f}, true_cost={tc:.4f}")
+    write_plots(cons_df, adm_df, out_dir)
+
+    scope = "full_map" if args.max_nodes is None else f"~{args.max_nodes}_nodes"
+    print(f"[info] Scope={scope} | nodes={len(G)} edges={len(G.edges())} goal={goal}")
+    print(f"[result] Saved: {out_dir / 'consistency_results.csv'}")
+    print(f"[result] Saved: {out_dir / 'admissibility_results.csv'}")
+    print(f"[result] Saved: {out_dir / 'summary.csv'}")
+    print(f"[result] Saved: {out_dir / 'consistency_residual_histogram.png'}")
+    print(f"[result] Saved: {out_dir / 'admissibility_delta_histogram.png'}")
+    print(f"[result] Saved: {out_dir / 'heuristic_violation_rates.png'}")
 
 
 if __name__ == "__main__":

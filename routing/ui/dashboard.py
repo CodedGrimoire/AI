@@ -4,10 +4,20 @@ from __future__ import annotations
 
 from dataclasses import asdict
 from pathlib import Path
+import sys
 from typing import Callable, Dict, Hashable, List, Optional
 
+import matplotlib
+matplotlib.use("Agg")
+import matplotlib.pyplot as plt
+import osmnx as ox
 import pandas as pd
 import streamlit as st
+
+# Ensure `routing` package is importable when launched via `streamlit run routing/ui/dashboard.py`.
+PROJECT_ROOT = Path(__file__).resolve().parents[2]
+if str(PROJECT_ROOT) not in sys.path:
+    sys.path.insert(0, str(PROJECT_ROOT))
 
 from routing.algorithms import (
     SearchResult,
@@ -95,7 +105,58 @@ def _single_algorithm_run(
     return runners[algorithm_code]()
 
 
-def _run_all_experiments_whole_dhaka(seed: int, dls_limit: int, ids_max_depth: int, timeout_seconds: int) -> Dict[str, str]:
+def _display_name(row: pd.Series) -> str:
+    if row["algorithm_name"] == "Weighted A*" and pd.notna(row["weight"]):
+        return f"Weighted A* (w={row['weight']:g})"
+    return str(row["algorithm_name"])
+
+
+def _route_map_figure(G, path: List[Hashable], title: str):
+    if not path:
+        return None
+    # Use OSMnx native route plotting for robust rendering on full city graphs.
+    fig, ax = ox.plot_graph_route(
+        G,
+        path,
+        route_linewidth=3,
+        route_alpha=0.95,
+        route_color="#d90429",
+        orig_dest_size=80,
+        node_size=0,
+        edge_linewidth=0.4,
+        edge_color="#8d99ae",
+        bgcolor="white",
+        show=False,
+        close=False,
+    )
+    fig.patch.set_facecolor("white")
+    ax.set_title(title, color="black")
+    return fig
+
+
+def _comparison_figure(df: pd.DataFrame):
+    plot_df = df.copy()
+    plot_df["label"] = plot_df.apply(_display_name, axis=1)
+    metrics = [
+        ("total_path_cost", "Total Path Cost"),
+        ("execution_time", "Execution Time (s)"),
+        ("nodes_expanded", "Nodes Expanded"),
+        ("visited_count", "Visited Count"),
+        ("path_length", "Path Length"),
+    ]
+    fig, axes = plt.subplots(2, 3, figsize=(18, 10))
+    axes_flat = list(axes.flat)
+    for i, (metric, title) in enumerate(metrics):
+        ax = axes_flat[i]
+        ax.bar(plot_df["label"], plot_df[metric], color="#0ea5e9")
+        ax.set_title(title)
+        ax.tick_params(axis="x", labelrotation=45, labelsize=8)
+    axes_flat[-1].axis("off")
+    plt.tight_layout()
+    return fig
+
+
+def _run_all_experiments_whole_dhaka(seed: int, dls_limit: int, ids_max_depth: int, timeout_seconds: int):
     outputs = {
         "all_algorithms": "experiments/all_algorithms/images/full_dhaka",
         "weighted_astar": "experiments/weighted_astar_analysis/images/full_dhaka",
@@ -175,7 +236,7 @@ def _run_all_experiments_whole_dhaka(seed: int, dls_limit: int, ids_max_depth: i
     )
     summary.to_csv(heuristic_dir / "summary.csv", index=False)
     write_plots(cons_df, adm_df, heuristic_dir)
-    return outputs
+    return outputs, df, results, G, start, goal
 
 
 def _weighted_astar_custom_weights(
@@ -251,17 +312,55 @@ def main() -> None:
             st.success("Run completed.")
             st.write(f"Start: `{start}` | Goal: `{goal}`")
             st.dataframe(_to_table(result), use_container_width=True)
+            if result.path_found and result.path:
+                st.subheader("Route Map")
+                fig = _route_map_figure(G, result.path, f"{label} Route on Full Dhaka Map")
+                if fig is not None:
+                    st.pyplot(fig, use_container_width=True)
+                    plt.close(fig)
+            else:
+                st.warning("No path found, so no route map is available.")
 
     if mode == "Run Whole Experiment Suite (Whole Dhaka Map)":
         if st.button("Run All Experiments", type="primary"):
             with st.spinner("Running all experiments on full Dhaka map. This may take a while..."):
-                outputs = _run_all_experiments_whole_dhaka(
+                outputs, all_df, all_results, run_graph, run_start, run_goal = _run_all_experiments_whole_dhaka(
                     int(seed),
                     int(dls_limit),
                     int(ids_max_depth),
                     int(timeout_seconds),
                 )
             st.success("All experiments completed.")
+            st.write(f"Start: `{run_start}` | Goal: `{run_goal}`")
+            table_df = all_df.copy()
+            table_df["algorithm"] = table_df.apply(_display_name, axis=1)
+            st.dataframe(
+                table_df[
+                    [
+                        "algorithm",
+                        "path_found",
+                        "total_path_cost",
+                        "execution_time",
+                        "nodes_expanded",
+                        "visited_count",
+                        "path_length",
+                        "max_frontier_size",
+                    ]
+                ],
+                use_container_width=True,
+            )
+            st.subheader("All-Algorithm Comparison Graphs")
+            comp_fig = _comparison_figure(all_df)
+            st.pyplot(comp_fig, use_container_width=True)
+            plt.close(comp_fig)
+            best = min((r for r in all_results if r.path_found and r.path), key=lambda r: r.total_path_cost, default=None)
+            if best is not None:
+                st.subheader("Best Path Map (Lowest Cost)")
+                best_label = best.algorithm_name if best.weight is None else f"{best.algorithm_name} (w={best.weight:g})"
+                best_fig = _route_map_figure(run_graph, best.path, f"{best_label} on Full Dhaka Map")
+                if best_fig is not None:
+                    st.pyplot(best_fig, use_container_width=True)
+                    plt.close(best_fig)
             st.write("Outputs saved to:")
             st.code("\n".join(f"{k}: {v}" for k, v in outputs.items()))
 

@@ -141,6 +141,8 @@ def run_algorithms(
     *,
     skip_uninformed: bool = False,
     timeout: Optional[int] = None,
+    dls_limit: int = 120,
+    ids_max_depth: int = 200,
 ) -> List[SearchResult]:
     h_fn = exponential_feature_heuristic(G, goal)
 
@@ -152,8 +154,8 @@ def run_algorithms(
                 ("Breadth-first search (BFS)", lambda: breadth_first_search(G, start, goal)),
                 ("Uniform cost search", lambda: uniform_cost_search(G, start, goal)),
                 ("Depth-first search (DFS)", lambda: depth_first_search(G, start, goal)),
-                ("Depth Limited Search", lambda: depth_limited_search(G, start, goal, limit=20)),
-                ("Iterative Deepening Search", lambda: iterative_deepening_search(G, start, goal, max_depth=40)),
+                ("Depth Limited Search", lambda: depth_limited_search(G, start, goal, limit=dls_limit)),
+                ("Iterative Deepening Search", lambda: iterative_deepening_search(G, start, goal, max_depth=ids_max_depth)),
                 ("Bidirectional Search", lambda: bidirectional_search(G, start, goal)),
             ]
         )
@@ -510,6 +512,8 @@ def main():
     parser.add_argument("--far-apart", action="store_true", default=True, help="Prefer far-apart sampling")
     parser.add_argument("--max-nodes", type=int, default=None, help="Limit graph to approximately this many nodes")
     parser.add_argument("--output-dir", type=str, default="images", help="Directory to write CSVs/plots")
+    parser.add_argument("--dls-limit", type=int, default=120, help="Depth limit for Depth Limited Search")
+    parser.add_argument("--ids-max-depth", type=int, default=200, help="Max depth for Iterative Deepening Search")
     args = parser.parse_args()
 
     configure_output_dirs(Path(args.output_dir))
@@ -542,6 +546,7 @@ def main():
     print(f"[info] Scope={scope}")
     print(f"[nodes] start={start}, end={goal}")
     print(f"[graph] Nodes: {len(G)} | Edges: {len(G.edges())}")
+    print(f"[depth] DLS limit={args.dls_limit} | IDS max_depth={args.ids_max_depth}")
 
     # Save a light base map preview
     try:
@@ -560,7 +565,15 @@ def main():
     except Exception as e:
         print(f"[warn] map plot failed: {e}")
 
-    results = run_algorithms(G, start, goal, skip_uninformed=args.skip_uninformed, timeout=args.timeout)
+    results = run_algorithms(
+        G,
+        start,
+        goal,
+        skip_uninformed=args.skip_uninformed,
+        timeout=args.timeout,
+        dls_limit=args.dls_limit,
+        ids_max_depth=args.ids_max_depth,
+    )
     print_run_summary(results)
     df = results_to_df(results)
     save_group_csvs(df)

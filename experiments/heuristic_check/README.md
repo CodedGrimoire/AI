@@ -13,6 +13,6 @@ source venv/bin/activate && python -m routing.experiments.heuristic_verification
 
 ```bash
 source venv/bin/activate && python -m routing.experiments.heuristic_verification \
-  --max-nodes 103384 \
-  --output-dir experiments/heuristic_check/images/dhaka_103384_nodes
+  --max-nodes 1000 \
+  --output-dir experiments/heuristic_check/images/dhaka_1000_nodes
 ```

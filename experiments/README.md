@@ -9,4 +9,4 @@ This repo is organized into three experiment tracks:
 Each track has:
 
 - a dedicated `images/` folder for outputs
-- two commands in its README: full Dhaka and 103384-node Dhaka subgraph
+- two commands in its README: full Dhaka and 1000-node Dhaka subgraph

@@ -55,7 +55,7 @@ Each folder has:
 - its own `images/` directory
 - two run commands in its local `README.md`:
   - full Dhaka map
-  - Dhaka map restricted to 103384 nodes
+  - Dhaka map restricted to 1000 nodes
 
 ## Quick commands (repo root)
 
@@ -69,21 +69,25 @@ All algorithms:
 
 ```bash
 python -m routing.experiments.run --output-dir experiments/all_algorithms/images/full_dhaka
-python -m routing.experiments.run --max-nodes 103384 --output-dir experiments/all_algorithms/images/dhaka_103384_nodes
+python -m routing.experiments.run \
+  --max-nodes 1000 \
+  --dls-limit 300 \
+  --ids-max-depth 500 \
+  --output-dir experiments/all_algorithms/images/dhaka_1000_nodes
 ```
 
 Weighted A* comparative sweep:
 
 ```bash
 python -m routing.experiments.weighted_astar_sweep --output-dir experiments/weighted_astar_analysis/images/full_dhaka
-python -m routing.experiments.weighted_astar_sweep --max-nodes 103384 --output-dir experiments/weighted_astar_analysis/images/dhaka_103384_nodes
+python -m routing.experiments.weighted_astar_sweep --max-nodes 1000 --output-dir experiments/weighted_astar_analysis/images/dhaka_1000_nodes
 ```
 
 Heuristic verification:
 
 ```bash
 python -m routing.experiments.heuristic_verification --output-dir experiments/heuristic_check/images/full_dhaka
-python -m routing.experiments.heuristic_verification --max-nodes 103384 --output-dir experiments/heuristic_check/images/dhaka_103384_nodes
+python -m routing.experiments.heuristic_verification --max-nodes 1000 --output-dir experiments/heuristic_check/images/dhaka_1000_nodes
 ```
 
 ## Public API shortcuts

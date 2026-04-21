@@ -13,6 +13,6 @@ source venv/bin/activate && python -m routing.experiments.run \
 
 ```bash
 source venv/bin/activate && python -m routing.experiments.run \
-  --max-nodes 500 \
-  --output-dir experiments/all_algorithms/images/dhaka_500_nodes
+  --max-nodes 103384 \
+  --output-dir experiments/all_algorithms/images/dhaka_103384_nodes
 ```

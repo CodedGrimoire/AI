@@ -13,6 +13,6 @@ source venv/bin/activate && python -m routing.experiments.weighted_astar_sweep \
 
 ```bash
 source venv/bin/activate && python -m routing.experiments.weighted_astar_sweep \
-  --max-nodes 500 \
-  --output-dir experiments/weighted_astar_analysis/images/dhaka_500_nodes
+  --max-nodes 103384 \
+  --output-dir experiments/weighted_astar_analysis/images/dhaka_103384_nodes
 ```

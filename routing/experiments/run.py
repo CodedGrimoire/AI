@@ -222,8 +222,46 @@ def run_algorithms(
         return res
 
     for expected_name, fn in runs:
+        print(f"[run] {expected_name}...")
         results.append(_run_with_timeout(expected_name, fn))
     return results
+
+
+def print_run_summary(results: List[SearchResult]) -> None:
+    """Print a compact CLI table similar to experiment logs."""
+    headers = ["Algorithm", "Found", "Cost", "PathLen", "Expanded", "Visited", "Runtime(ms)"]
+    rows = []
+    for r in results:
+        found = "Yes" if r.path_found else "No"
+        cost = f"{r.total_path_cost:.2f}" if r.path_found else "INF"
+        runtime_ms = r.execution_time * 1000.0
+        name = r.algorithm_name
+        if r.weight is not None:
+            name = f"{name}(w={r.weight:g})"
+        rows.append(
+            [
+                name,
+                found,
+                cost,
+                str(r.path_length),
+                str(r.nodes_expanded),
+                str(r.visited_count),
+                f"{runtime_ms:.2f}",
+            ]
+        )
+
+    widths = [len(h) for h in headers]
+    for row in rows:
+        for i, val in enumerate(row):
+            widths[i] = max(widths[i], len(val))
+
+    def fmt(row_vals: List[str]) -> str:
+        return "  ".join(val.ljust(widths[i]) for i, val in enumerate(row_vals))
+
+    print(fmt(headers))
+    print("  ".join("-" * w for w in widths))
+    for row in rows:
+        print(fmt(row))
 
 
 def results_to_df(results: List[SearchResult]) -> pd.DataFrame:
@@ -501,7 +539,9 @@ def main():
     )
 
     scope = "full_map" if not args.max_nodes else f"~{args.max_nodes}_nodes"
-    print(f"[info] Scope={scope} | start={start}, goal={goal}, nodes={len(G)}, edges={len(G.edges())}")
+    print(f"[info] Scope={scope}")
+    print(f"[nodes] start={start}, end={goal}")
+    print(f"[graph] Nodes: {len(G)} | Edges: {len(G.edges())}")
 
     # Save a light base map preview
     try:
@@ -521,6 +561,7 @@ def main():
         print(f"[warn] map plot failed: {e}")
 
     results = run_algorithms(G, start, goal, skip_uninformed=args.skip_uninformed, timeout=args.timeout)
+    print_run_summary(results)
     df = results_to_df(results)
     save_group_csvs(df)
 

@@ -93,6 +93,18 @@ python -m routing.experiments.heuristic_verification --output-dir experiments/he
 python -m routing.experiments.heuristic_verification --max-nodes 1000 --output-dir experiments/heuristic_check/images/dhaka_1000_nodes
 ```
 
+## UI Dashboard
+
+Run an interactive UI with a menu for:
+- running one selected algorithm on the full Dhaka map
+- running the whole experiment suite on the full Dhaka map
+- running Weighted A* with custom weight values
+
+```bash
+source venv/bin/activate
+streamlit run routing/ui/dashboard.py
+```
+
 ## Public API shortcuts
 Import helpers directly from the package:
 ```python

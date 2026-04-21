@@ -68,7 +68,10 @@ source venv/bin/activate
 All algorithms:
 
 ```bash
-python -m routing.experiments.run --output-dir experiments/all_algorithms/images/full_dhaka
+python -m routing.experiments.run \
+  --dls-limit 300 \
+  --ids-max-depth 500 \
+  --output-dir experiments/all_algorithms/images/full_dhaka
 python -m routing.experiments.run \
   --max-nodes 1000 \
   --dls-limit 300 \

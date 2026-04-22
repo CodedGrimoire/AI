@@ -267,10 +267,49 @@ def _to_table(result: SearchResult) -> pd.DataFrame:
     return pd.DataFrame([row])
 
 
+def _run_heuristic_admissibility_check(seed: int):
+    out_dir = Path("experiments/heuristic_check/images/full_dhaka")
+    out_dir.mkdir(parents=True, exist_ok=True)
+
+    G = load_graph_with_costs(use_osm=True, max_nodes=None, seed=seed)
+    goal = choose_goal_far(G)
+    h = compute_heuristics(G, goal)
+    cons_df = consistency_frame(G, h)
+    adm_df = admissibility_frame(G, goal, h)
+
+    summary = pd.DataFrame(
+        [
+            {
+                "check": "consistency",
+                "total_checked": int(len(cons_df)),
+                "violations": int(cons_df["is_violation"].sum()),
+                "violation_rate": float(cons_df["is_violation"].mean()),
+                "max_residual": float(cons_df["residual"].max()),
+            },
+            {
+                "check": "admissibility",
+                "total_checked": int(len(adm_df)),
+                "violations": int(adm_df["is_violation"].sum()),
+                "violation_rate": float(adm_df["is_violation"].mean()),
+                "max_residual": float(adm_df["residual"].max()),
+            },
+        ]
+    )
+
+    cons_df.to_csv(out_dir / "consistency_results.csv", index=False)
+    adm_df.to_csv(out_dir / "admissibility_results.csv", index=False)
+    summary.to_csv(out_dir / "summary.csv", index=False)
+    write_plots(cons_df, adm_df, out_dir)
+    return summary, cons_df, adm_df, goal, out_dir
+
+
 def main() -> None:
     st.set_page_config(page_title="Dhaka Routing Experiment UI", layout="wide")
     st.title("Dhaka Routing Experiment UI")
     st.caption("Run a single algorithm, the full experiment suite, or Weighted A* with custom weights on the full Dhaka map.")
+
+    selected_weight_for_sidebar: Optional[float] = None
+    sweep_weights_for_sidebar: Optional[str] = None
 
     with st.sidebar:
         st.header("Controls")
@@ -278,6 +317,8 @@ def main() -> None:
         dls_limit = st.number_input("DLS limit", min_value=1, max_value=10000, value=120, step=1)
         ids_max_depth = st.number_input("IDS max depth", min_value=1, max_value=10000, value=200, step=1)
         timeout_seconds = st.number_input("Per-algorithm timeout (0 = off)", min_value=0, max_value=7200, value=0, step=1)
+        if st.button("Refresh / Clear Screen"):
+            st.rerun()
 
     mode = st.selectbox(
         "Menu",
@@ -285,6 +326,7 @@ def main() -> None:
             "Run Single Algorithm (Whole Dhaka Map)",
             "Run Whole Experiment Suite (Whole Dhaka Map)",
             "Run Weighted A* with Different Weights (Whole Dhaka Map)",
+            "Run Heuristic Admissibility Check (Whole Dhaka Map)",
         ],
     )
 
@@ -295,6 +337,7 @@ def main() -> None:
         weight = 1.5
         if selected == "weighted_astar":
             weight = st.number_input("Weighted A* weight (w)", min_value=0.1, max_value=50.0, value=1.5, step=0.1)
+            selected_weight_for_sidebar = float(weight)
 
         if st.button("Run Selected Algorithm", type="primary"):
             with st.spinner("Loading Dhaka graph and running selected algorithm..."):
@@ -367,6 +410,7 @@ def main() -> None:
     if mode == "Run Weighted A* with Different Weights (Whole Dhaka Map)":
         default_text = ", ".join(str(w) for w in DEFAULT_WEIGHTS)
         weights_text = st.text_input("Weights (comma-separated)", value=default_text)
+        sweep_weights_for_sidebar = weights_text
         if st.button("Run Weighted A* Weight Sweep", type="primary"):
             with st.spinner("Loading Dhaka graph and running Weighted A* for all weights..."):
                 weights = [float(w.strip()) for w in weights_text.split(",") if w.strip()]
@@ -377,6 +421,48 @@ def main() -> None:
             st.write(f"Start: `{start}` | Goal: `{goal}`")
             st.dataframe(df, use_container_width=True)
             st.line_chart(df.set_index("weight")[["cost", "nodes_expanded", "execution_time_s"]], use_container_width=True)
+
+    if mode == "Run Heuristic Admissibility Check (Whole Dhaka Map)":
+        if st.button("Run Heuristic Check", type="primary"):
+            with st.spinner("Running admissibility and consistency checks on full Dhaka map..."):
+                summary_df, cons_df, adm_df, goal, out_dir = _run_heuristic_admissibility_check(int(seed))
+            st.success("Heuristic check completed.")
+            st.write(f"Goal node used for admissibility: `{goal}`")
+            st.subheader("Summary")
+            st.dataframe(summary_df, use_container_width=True)
+            col1, col2 = st.columns(2)
+            with col1:
+                st.caption("Consistency residuals")
+                st.image(str(out_dir / "consistency_residual_histogram.png"), use_container_width=True)
+            with col2:
+                st.caption("Admissibility residuals")
+                st.image(str(out_dir / "admissibility_delta_histogram.png"), use_container_width=True)
+            st.caption("Violation rates")
+            st.image(str(out_dir / "heuristic_violation_rates.png"), use_container_width=True)
+            st.subheader("Detailed Tables")
+            st.write("Consistency (sample):")
+            st.dataframe(cons_df.head(200), use_container_width=True)
+            st.write("Admissibility (sample):")
+            st.dataframe(adm_df.head(200), use_container_width=True)
+
+    with st.sidebar:
+        st.markdown("---")
+        st.subheader("Functions Used")
+        st.markdown("`Cost (all algorithms):`")
+        st.code("c(u, v) = custom_cost = physical edge distance (length fallback Euclidean)", language="text")
+        st.markdown("`Heuristic (Greedy, A*, Weighted A*):`")
+        st.code(
+            "h(n) = max(0, d(n,g) - z(n))\n"
+            "z(n) = α(Tmax-T(n)) + β(Amax-A(n)) + γ(Bmax-B(n)) + λS(n)\n"
+            "α=0.5, β=0.4, γ=0.3, λ=0.6",
+            language="text",
+        )
+        st.markdown("`Weighted A* evaluation:`")
+        st.code("f(n) = g(n) + w * h(n)", language="text")
+        if selected_weight_for_sidebar is not None:
+            st.info(f"Current Weighted A* value: w = {selected_weight_for_sidebar:g}")
+        elif sweep_weights_for_sidebar:
+            st.info(f"Weighted A* sweep values: {sweep_weights_for_sidebar}")
 
 
 if __name__ == "__main__":

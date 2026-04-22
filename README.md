@@ -105,6 +105,23 @@ source venv/bin/activate
 streamlit run routing/ui/dashboard.py
 ```
 
+## Streamlit Community Cloud Deploy
+
+This repo is already connected to GitHub at:
+- `https://github.com/CodedGrimoire/AI`
+
+Deploy using Streamlit Cloud:
+
+```text
+Repository: CodedGrimoire/AI
+Branch: main
+Main file path: streamlit_app.py
+```
+
+Notes:
+- Streamlit Cloud installs from root `requirements.txt`.
+- If you select `routing/ui/dashboard.py` as main file, it also works, but `streamlit_app.py` is the simplest deployment target.
+
 ## Public API shortcuts
 Import helpers directly from the package:
 ```python

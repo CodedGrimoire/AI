@@ -1,0 +1,6 @@
+streamlit>=1.35
+osmnx==1.9.3
+networkx>=3.2
+pandas>=2.2
+matplotlib>=3.8
+numpy>=1.26
